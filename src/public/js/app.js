@@ -6,15 +6,18 @@ const state = {
     slideshowTimer: null,
     controlsVisible: false,
     controlsTimer: null,
+    mouseMoveTimer: null,
     infoVisible: false
 };
 
 // DOM elements
 const elements = {
     mainImage: document.getElementById('mainImage'),
+    nextImage: document.getElementById('nextImage'),
     loadingIndicator: document.getElementById('loadingIndicator'),
     noImagesMessage: document.getElementById('noImagesMessage'),
     controlOverlay: document.getElementById('controlOverlay'),
+    bottomBar: document.getElementById('bottomBar'),
     infoOverlay: document.getElementById('infoOverlay'),
     locationOverlay: document.getElementById('locationOverlay'),
     locationText: document.getElementById('locationText'),
@@ -93,7 +96,7 @@ async function apiCall(endpoint, options = {}) {
 async function loadCurrentImage() {
     try {
         const data = await apiCall('/image/current');
-        displayImage(data.image);
+        displayImage(data.image, data.preload);
         updateSettings(data.settings);
         preloadImages(data.preload);
     } catch (error) {
@@ -105,7 +108,7 @@ async function loadCurrentImage() {
 async function loadNextImage() {
     try {
         const data = await apiCall('/image/next');
-        displayImage(data.image);
+        displayImage(data.image, data.preload);
         updateSettings(data.settings);
         preloadImages(data.preload);
     } catch (error) {
@@ -116,7 +119,7 @@ async function loadNextImage() {
 async function loadPreviousImage() {
     try {
         const data = await apiCall('/image/previous');
-        displayImage(data.image);
+        displayImage(data.image, data.preload);
         updateSettings(data.settings);
         preloadImages(data.preload);
     } catch (error) {
@@ -152,7 +155,7 @@ async function deleteImage() {
         });
         
         if (data.nextImage) {
-            displayImage(data.nextImage);
+            displayImage(data.nextImage, []);
         } else {
             showNoImages();
         }
@@ -245,7 +248,7 @@ async function loadStats() {
 }
 
 // Display functions
-function displayImage(image) {
+function displayImage(image, preloadImages = []) {
     if (!image) {
         showNoImages();
         return;
@@ -253,35 +256,100 @@ function displayImage(image) {
     
     state.currentImage = image;
     
-    // Fade out current image
-    elements.mainImage.classList.remove('loaded');
+    const imageUrl = `/api/image/${image.id}/serve`;
     
-    // Load new image
-    setTimeout(() => {
-        elements.mainImage.src = `/api/image/${image.id}/serve`;
+    // Check if this is the first image load (no current image visible)
+    const hasCurrentImage = elements.mainImage.classList.contains('current') && 
+                           elements.mainImage.style.display !== 'none' &&
+                           elements.mainImage.complete;
+    
+    if (!hasCurrentImage) {
+        // First image load - no crossfade needed
+        elements.mainImage.style.display = 'block';
+        elements.mainImage.src = imageUrl;
         elements.mainImage.alt = image.filename;
+        elements.mainImage.classList.add('current');
+        elements.mainImage.classList.remove('next');
+        elements.mainImage.style.opacity = '0';
         
-        // Update info overlay
-        updateInfoOverlay(image);
+        elements.mainImage.onload = () => {
+            elements.mainImage.style.opacity = '1';
+            updateInfoOverlay(image);
+            updateLocationOverlay(image);
+            updateFavoriteButton();
+            elements.loadingIndicator.style.display = 'none';
+            elements.noImagesMessage.style.display = 'none';
+        };
         
-        // Update location overlay
-        updateLocationOverlay(image);
+        elements.mainImage.onerror = () => {
+            console.error('Failed to load image:', imageUrl);
+            showNoImages();
+        };
+    } else {
+        // Subsequent images - use crossfade
+        const currentImg = elements.mainImage.classList.contains('current') ? elements.mainImage : elements.nextImage;
+        const nextImg = elements.mainImage.classList.contains('current') ? elements.nextImage : elements.mainImage;
         
-        // Update favorite button
-        updateFavoriteButton();
-        
-        elements.loadingIndicator.style.display = 'none';
-        elements.noImagesMessage.style.display = 'none';
-    }, 300);
+        // If image is already loaded in nextImg, use it immediately
+        if (nextImg.src === imageUrl && nextImg.complete) {
+            // Image already loaded, swap immediately
+            swapImages(currentImg, nextImg, image);
+        } else {
+            // Load new image
+            nextImg.style.display = 'block';
+            nextImg.src = imageUrl;
+            nextImg.alt = image.filename;
+            
+            // Wait for image to load before crossfading
+            nextImg.onload = () => {
+                swapImages(currentImg, nextImg, image);
+            };
+            
+            nextImg.onerror = () => {
+                console.error('Failed to load image:', imageUrl);
+                nextImg.style.display = 'none';
+            };
+        }
+    }
     
-    // Fade in new image when loaded
-    elements.mainImage.onload = () => {
-        elements.mainImage.classList.add('loaded');
-    };
+    // Preload upcoming images
+    if (preloadImages && preloadImages.length > 0) {
+        preloadImages.forEach(preloadImg => {
+            const img = new Image();
+            img.src = `/api/image/${preloadImg.id}/serve`;
+        });
+    }
+}
+
+function swapImages(currentImg, nextImg, image) {
+    // Crossfade: fade out current, fade in next
+    currentImg.classList.remove('current');
+    currentImg.classList.add('next');
+    currentImg.style.opacity = '0';
+    
+    nextImg.classList.remove('next');
+    nextImg.classList.add('current');
+    nextImg.style.opacity = '1';
+    
+    // Hide current image after transition completes
+    setTimeout(() => {
+        if (!currentImg.classList.contains('current')) {
+            currentImg.style.display = 'none';
+        }
+    }, 600);
+    
+    // Update info overlays
+    updateInfoOverlay(image);
+    updateLocationOverlay(image);
+    updateFavoriteButton();
+    
+    elements.loadingIndicator.style.display = 'none';
+    elements.noImagesMessage.style.display = 'none';
 }
 
 function showNoImages() {
     elements.mainImage.style.display = 'none';
+    elements.nextImage.style.display = 'none';
     elements.loadingIndicator.style.display = 'none';
     elements.noImagesMessage.style.display = 'block';
     state.currentImage = null;
@@ -490,6 +558,7 @@ function updatePlayPauseButton() {
 function showControls() {
     document.body.classList.add('show-cursor');
     elements.controlOverlay.classList.add('visible');
+    elements.bottomBar.classList.add('visible');
     state.controlsVisible = true;
     
     // Clear existing timer
@@ -503,6 +572,30 @@ function showControls() {
     }, 5000);
 }
 
+// Debounced mouse move handler - only resets timer after mouse stops moving
+function handleMouseMove() {
+    // Show controls immediately on mouse move
+    if (!state.controlsVisible) {
+        showControls();
+    }
+    
+    // Clear existing mouse move timer
+    if (state.mouseMoveTimer) {
+        clearTimeout(state.mouseMoveTimer);
+    }
+    
+    // Reset the hide timer only after mouse has been still for 500ms
+    state.mouseMoveTimer = setTimeout(() => {
+        // Mouse has stopped moving, reset the hide timer
+        if (state.controlsTimer) {
+            clearTimeout(state.controlsTimer);
+        }
+        state.controlsTimer = setTimeout(() => {
+            hideControls();
+        }, 5000);
+    }, 500);
+}
+
 function hideControls() {
     // Don't hide if settings panel is open
     if (!elements.settingsPanel.classList.contains('hidden')) {
@@ -511,6 +604,7 @@ function hideControls() {
     
     document.body.classList.remove('show-cursor');
     elements.controlOverlay.classList.remove('visible');
+    elements.bottomBar.classList.remove('visible');
     state.controlsVisible = false;
 }
 
@@ -586,8 +680,8 @@ function setupEventListeners() {
     elements.cancelSettingsBtn.addEventListener('click', closeSettings);
     elements.resetDatabaseBtn.addEventListener('click', resetDatabase);
     
-    // Mouse movement
-    document.addEventListener('mousemove', showControls);
+    // Mouse movement - use debounced handler
+    document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('touchstart', showControls);
     
     // Keyboard shortcuts

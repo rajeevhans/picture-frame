@@ -9,7 +9,8 @@
 <body>
     <!-- Main image display -->
     <div id="imageContainer" class="image-container">
-        <img id="mainImage" class="main-image" alt="Loading...">
+        <img id="mainImage" class="main-image current" alt="Loading...">
+        <img id="nextImage" class="main-image next" alt="" style="display: none;">
         <div id="loadingIndicator" class="loading">Loading images...</div>
         <div id="noImagesMessage" class="no-images" style="display: none;">
             No images found. Please add images to your photo directory.
@@ -70,7 +71,7 @@
     </div>
 
         <!-- Bottom bar -->
-        <div class="control-bar bottom-bar">
+        <div id="bottomBar" class="control-bar bottom-bar">
             <div class="control-group center">
                 <button id="prevBtn" class="control-btn" title="Previous (←)">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
