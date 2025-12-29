@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const sharp = require('sharp');
 const ImageRotationService = require('../services/imageRotation');
 const router = express.Router();
 
@@ -70,7 +71,7 @@ function createImageRoutes(db, slideshowEngine) {
     });
 
     // Serve image file
-    router.get('/:id/serve', (req, res) => {
+    router.get('/:id/serve', async (req, res) => {
         try {
             const imageId = parseInt(req.params.id);
             const image = db.getImageById(imageId);
@@ -81,6 +82,23 @@ function createImageRoutes(db, slideshowEngine) {
 
             // Check if nocache parameter is present (used after rotation)
             const nocache = req.query.nocache === '1';
+            
+            // Resolve to absolute path
+            const absolutePath = path.resolve(image.filepath);
+            
+            // Check if file exists
+            if (!fs.existsSync(absolutePath)) {
+                return res.status(404).json({ error: 'Image file not found' });
+            }
+            
+            // Check if file is HEIF/HEIC format
+            const ext = path.extname(absolutePath).toLowerCase();
+            const isHeif = ['.heic', '.heif'].includes(ext);
+            
+            // Set content type
+            if (isHeif) {
+                res.set('Content-Type', 'image/jpeg');
+            }
             
             // Set caching headers
             if (nocache) {
@@ -97,23 +115,42 @@ function createImageRoutes(db, slideshowEngine) {
                     'ETag': `${image.id}-${image.file_modified}`
                 });
             }
-
-            // Resolve to absolute path
-            const absolutePath = path.resolve(image.filepath);
             
-            // Send the file
-            res.sendFile(absolutePath, (err) => {
-                if (err) {
-                    // Only log the error, don't try to send response
-                    // (headers may already be sent or client disconnected)
-                    console.error(`Error serving image ${image.filepath}:`, err.message);
+            // Convert HEIF to JPEG on-the-fly, or serve directly
+            if (isHeif) {
+                try {
+                    // Convert HEIF to JPEG and stream to response
+                    const pipeline = sharp(absolutePath)
+                        .jpeg({ quality: 90 })
+                        .pipe(res);
                     
-                    // Only send error response if headers haven't been sent yet
+                    pipeline.on('error', (err) => {
+                        if (!res.headersSent) {
+                            console.error(`Error converting HEIF ${image.filepath}:`, err.message);
+                            res.status(500).json({ error: 'Failed to convert image' });
+                        }
+                    });
+                } catch (conversionError) {
                     if (!res.headersSent) {
-                        res.status(404).json({ error: 'Image file not found' });
+                        console.error(`Error converting HEIF ${image.filepath}:`, conversionError.message);
+                        res.status(500).json({ error: 'Failed to convert HEIF image' });
                     }
                 }
-            });
+            } else {
+                // Send the file directly for non-HEIF formats
+                res.sendFile(absolutePath, (err) => {
+                    if (err) {
+                        // Only log the error, don't try to send response
+                        // (headers may already be sent or client disconnected)
+                        console.error(`Error serving image ${image.filepath}:`, err.message);
+                        
+                        // Only send error response if headers haven't been sent yet
+                        if (!res.headersSent) {
+                            res.status(404).json({ error: 'Image file not found' });
+                        }
+                    }
+                });
+            }
         } catch (error) {
             console.error('Error serving image:', error);
             if (!res.headersSent) {
