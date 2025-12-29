@@ -104,13 +104,21 @@ function createImageRoutes(db, slideshowEngine) {
             // Send the file
             res.sendFile(absolutePath, (err) => {
                 if (err) {
-                    console.error(`Error serving image ${image.filepath}:`, err);
-                    res.status(404).json({ error: 'Image file not found' });
+                    // Only log the error, don't try to send response
+                    // (headers may already be sent or client disconnected)
+                    console.error(`Error serving image ${image.filepath}:`, err.message);
+                    
+                    // Only send error response if headers haven't been sent yet
+                    if (!res.headersSent) {
+                        res.status(404).json({ error: 'Image file not found' });
+                    }
                 }
             });
         } catch (error) {
             console.error('Error serving image:', error);
-            res.status(500).json({ error: 'Internal server error' });
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Internal server error' });
+            }
         }
     });
 

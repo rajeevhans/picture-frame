@@ -11,6 +11,9 @@
   "indexing": {
     "batchSize": 100,
     "logInterval": 500
+  },
+  "watcher": {
+    "usePolling": false
   }
 }
 

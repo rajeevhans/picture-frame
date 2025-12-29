@@ -22,15 +22,24 @@ class FileWatcher {
         // Create file pattern for chokidar
         const globPattern = `**/*.{${extensions.join(',')}}`;
 
+        // Use polling mode if configured or on systems with low inotify limits
+        const usePolling = this.config.watcher?.usePolling || false;
+        
         this.watcher = chokidar.watch(directoryPath, {
             ignored: /(^|[\/\\])\../, // ignore dotfiles
             persistent: true,
             ignoreInitial: true, // Don't emit events for initial scan
+            usePolling: usePolling, // Use polling instead of native watchers
+            interval: 10000, // Poll every 10 seconds (only used if usePolling is true)
             awaitWriteFinish: {
                 stabilityThreshold: 2000,
                 pollInterval: 100
             }
         });
+        
+        if (usePolling) {
+            console.log('File watcher using polling mode (10s interval)');
+        }
 
         this.watcher
             .on('add', filePath => this.handleFileAdded(filePath))
