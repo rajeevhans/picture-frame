@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Picture Frame</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <!-- Main image display -->
+    <div id="imageContainer" class="image-container">
+        <img id="mainImage" class="main-image" alt="Loading...">
+        <div id="loadingIndicator" class="loading">Loading images...</div>
+        <div id="noImagesMessage" class="no-images" style="display: none;">
+            No images found. Please add images to your photo directory.
+        </div>
+        <!-- Location overlay -->
+        <div id="locationOverlay" class="location-overlay hidden">
+            <span id="locationText"></span>
+        </div>
+    </div>
+
+    <!-- Info overlay -->
+    <div id="infoOverlay" class="info-overlay hidden">
+        <div class="info-content">
+            <div class="info-item">
+                <span class="info-label">Date:</span>
+                <span id="infoDate" class="info-value">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Location:</span>
+                <span id="infoLocation" class="info-value">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Camera:</span>
+                <span id="infoCamera" class="info-value">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Resolution:</span>
+                <span id="infoResolution" class="info-value">-</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Control overlay -->
+    <div id="controlOverlay" class="control-overlay">
+        <!-- Top bar -->
+        <div class="control-bar top-bar">
+            <div class="control-group">
+                <button id="infoBtn" class="control-btn" title="Toggle Info (I)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="16" x2="12" y2="12"/>
+                        <line x1="12" y1="8" x2="12" y2="8"/>
+                    </svg>
+                </button>
+                <button id="settingsBtn" class="control-btn" title="Settings (S)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M12 1v6m0 6v6m-9-9h6m6 0h6"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Clock display (always visible) -->
+    <div id="clockDisplay" class="clock-display">
+        <span id="clockTime">--:--</span>
+    </div>
+
+        <!-- Bottom bar -->
+        <div class="control-bar bottom-bar">
+            <div class="control-group center">
+                <button id="prevBtn" class="control-btn" title="Previous (←)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                </button>
+                <button id="playPauseBtn" class="control-btn" title="Play/Pause (Space)">
+                    <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor">
+                        <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
+                    <svg id="pauseIcon" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+                        <rect x="6" y="4" width="4" height="16"/>
+                        <rect x="14" y="4" width="4" height="16"/>
+                    </svg>
+                </button>
+                <button id="nextBtn" class="control-btn" title="Next (→)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="9 18 15 12 9 6"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="control-group">
+                <button id="rotateLeftBtn" class="control-btn" title="Rotate Left ([)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M2.5 2v6h6M2.66 15.57a10 10 0 1 0 .57-8.38"/>
+                    </svg>
+                </button>
+                <button id="rotateRightBtn" class="control-btn" title="Rotate Right (])">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38"/>
+                    </svg>
+                </button>
+                <button id="favoriteBtn" class="control-btn" title="Favorite (F)">
+                    <svg id="favoriteIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                    </svg>
+                </button>
+                <button id="deleteBtn" class="control-btn" title="Delete (D)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings panel -->
+    <div id="settingsPanel" class="settings-panel hidden">
+        <div class="settings-content">
+            <h2>Slideshow Settings</h2>
+            
+            <div class="settings-group">
+                <label>Mode</label>
+                <select id="modeSelect">
+                    <option value="sequential">Sequential</option>
+                    <option value="random">Random</option>
+                    <option value="smart">Smart (Weighted)</option>
+                </select>
+            </div>
+
+            <div class="settings-group" id="orderGroup">
+                <label>Order</label>
+                <select id="orderSelect">
+                    <option value="date">By Date</option>
+                    <option value="filename">By Filename</option>
+                    <option value="thisday">This Day in History</option>
+                </select>
+            </div>
+
+            <div class="settings-group">
+                <label>Interval (seconds)</label>
+                <select id="intervalSelect">
+                    <option value="5">5 seconds</option>
+                    <option value="10">10 seconds</option>
+                    <option value="15">15 seconds</option>
+                    <option value="30">30 seconds</option>
+                    <option value="60">1 minute</option>
+                    <option value="300">5 minutes</option>
+                </select>
+            </div>
+
+            <div class="settings-group">
+                <label>
+                    <input type="checkbox" id="favoritesOnlyCheck">
+                    Show favorites only
+                </label>
+            </div>
+
+            <div class="settings-group stats">
+                <h3>Statistics</h3>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">Total Images:</span>
+                        <span id="statTotal" class="stat-value">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Favorites:</span>
+                        <span id="statFavorites" class="stat-value">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Deleted:</span>
+                        <span id="statDeleted" class="stat-value">-</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="settings-group danger-zone">
+                <h3>⚠️ Danger Zone</h3>
+                <p class="warning-text">This will permanently delete the database and re-index all photos.</p>
+                <button id="resetDatabaseBtn" class="btn btn-danger">Reset Database</button>
+            </div>
+
+            <div class="settings-actions">
+                <button id="saveSettingsBtn" class="btn btn-primary">Save</button>
+                <button id="cancelSettingsBtn" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preload container (hidden) -->
+    <div id="preloadContainer" style="display: none;"></div>
+
+    <script src="/js/app.js"></script>
+</body>
+</html>
+

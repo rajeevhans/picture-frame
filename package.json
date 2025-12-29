@@ -1,0 +1,29 @@
+{
+  "name": "raspberry-pi-picture-frame",
+  "version": "1.0.0",
+  "description": "Digital picture frame for Raspberry Pi with web control interface",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "index": "node src/server.js --index",
+    "dev": "node src/server.js --dev",
+    "cleanup": "node src/server.js --index"
+  },
+  "keywords": [
+    "picture-frame",
+    "raspberry-pi",
+    "slideshow",
+    "photo-viewer"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "better-sqlite3": "^11.7.0",
+    "chokidar": "^3.5.3",
+    "exifreader": "^4.16.0",
+    "sharp": "^0.33.0"
+  }
+}
+
+

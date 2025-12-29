@@ -1,0 +1,20 @@
+[Unit]
+Description=Picture Frame Node.js Server
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/opt/pictureframe
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pictureframe
+
+[Install]
+WantedBy=multi-user.target
+
+

@@ -1,0 +1,17 @@
+{
+  "photoDirectory": "./test_photos",
+  "databasePath": "./data/pictureframe.db",
+  "serverPort": 3000,
+  "slideshow": {
+    "defaultInterval": 10,
+    "defaultMode": "sequential",
+    "defaultOrder": "date"
+  },
+  "fileExtensions": [".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif"],
+  "indexing": {
+    "batchSize": 100,
+    "logInterval": 500
+  }
+}
+
+

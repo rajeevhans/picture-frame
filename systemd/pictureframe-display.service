@@ -1,0 +1,36 @@
+[Unit]
+Description=Picture Frame Display (Chromium Kiosk)
+After=graphical.target pictureframe.service
+Wants=pictureframe.service
+
+[Service]
+Type=simple
+User=pi
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/pi/.Xauthority
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/bin/chromium-browser \
+    --kiosk \
+    --noerrdialogs \
+    --disable-infobars \
+    --no-first-run \
+    --disable-session-crashed-bubble \
+    --disable-restore-session-state \
+    --disable-features=TranslateUI \
+    --disable-translate \
+    --disable-sync \
+    --disable-default-apps \
+    --disable-extensions \
+    --incognito \
+    --check-for-update-interval=31536000 \
+    http://localhost:3000
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pictureframe-display
+
+[Install]
+WantedBy=graphical.target
+
+

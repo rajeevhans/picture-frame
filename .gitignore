@@ -1,0 +1,10 @@
+node_modules/
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+data/deleted/
+*.log
+.DS_Store
+.env
+test_photos/
