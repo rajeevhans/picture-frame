@@ -38,7 +38,9 @@ echo "Press Cmd+Q to exit fullscreen"
 echo ""
 
 # Launch browser in kiosk mode
-"$BROWSER" \        
+# Suppress errors by redirecting stderr to /dev/null and adding flags to disable
+# background services that cause GCM and DBus errors
+"$BROWSER" \
     --kiosk \
     --noerrdialogs \
     --disable-infobars \
@@ -51,6 +53,21 @@ echo ""
     --disable-default-apps \
     --disable-extensions \
     --incognito \
+    --disable-background-networking \
+    --disable-background-timer-throttling \
+    --disable-backgrounding-occluded-windows \
+    --disable-breakpad \
+    --disable-component-update \
+    --disable-client-side-phishing-detection \
+    --disable-hang-monitor \
+    --disable-popup-blocking \
+    --disable-prompt-on-repost \
+    --metrics-recording-only \
+    --safebrowsing-disable-auto-update \
+    --enable-automation \
+    --password-store=basic \
+    --use-mock-keychain \
+    --disable-ipc-flooding-protection \
     --app=http://localhost:3000 \
     > /dev/null 2>&1 &
 

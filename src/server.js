@@ -34,6 +34,11 @@ const slideshowEngine = new SlideshowEngine(db);
 // Initialize geolocation service
 const geoService = new GeolocationService();
 
+// SSE clients for broadcasting updates
+const sseClients = new Set();
+let slideshowTimer = null;
+let isSlideshowPlaying = false;
+
 // Check command line arguments
 const args = process.argv.slice(2);
 const forceIndex = args.includes('--index') || args.includes('-i');
@@ -42,9 +47,69 @@ const devMode = args.includes('--dev');
 // Initialize slideshow engine
 slideshowEngine.initialize();
 
-// API Routes
-app.use('/api/image', createImageRoutes(db, slideshowEngine));
-app.use('/api/settings', createSettingsRoutes(db, slideshowEngine));
+// Broadcast function to send updates to all connected clients
+function broadcastUpdate(type, data) {
+    const message = JSON.stringify({ type, ...data });
+    const sseMessage = `data: ${message}\n\n`;
+    
+    // Send to all connected clients
+    sseClients.forEach(client => {
+        try {
+            client.write(sseMessage);
+        } catch (error) {
+            // Client disconnected, remove from set
+            sseClients.delete(client);
+        }
+    });
+}
+
+// Server-side slideshow timer
+function startServerSlideshow() {
+    if (slideshowTimer || isSlideshowPlaying) return;
+    
+    isSlideshowPlaying = true;
+    const interval = slideshowEngine.settings.interval || 10;
+    
+    slideshowTimer = setInterval(() => {
+        try {
+            const image = slideshowEngine.getNextImage();
+            if (image) {
+                const preload = slideshowEngine.getPreloadImages(3);
+                broadcastUpdate('image', {
+                    image,
+                    preload,
+                    settings: slideshowEngine.getSettings(),
+                    isPlaying: true
+                });
+            }
+        } catch (error) {
+            console.error('Error in server slideshow timer:', error);
+        }
+    }, interval * 1000);
+    
+    console.log(`Server-side slideshow started (${interval}s interval)`);
+}
+
+function stopServerSlideshow() {
+    if (slideshowTimer) {
+        clearInterval(slideshowTimer);
+        slideshowTimer = null;
+    }
+    isSlideshowPlaying = false;
+    broadcastUpdate('slideshowState', { isPlaying: false });
+    console.log('Server-side slideshow stopped');
+}
+
+function updateServerSlideshowInterval() {
+    if (isSlideshowPlaying) {
+        stopServerSlideshow();
+        startServerSlideshow();
+    }
+}
+
+// API Routes - pass broadcast function and slideshow control functions
+app.use('/api/image', createImageRoutes(db, slideshowEngine, broadcastUpdate));
+app.use('/api/settings', createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServerSlideshowInterval));
 
 // Serve static files (frontend)
 app.use(express.static(path.join(__dirname, 'public')));
@@ -63,6 +128,42 @@ app.get('/api/stats', (req, res) => {
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: Date.now() });
+});
+
+// SSE endpoint for real-time updates
+app.get('/api/events', (req, res) => {
+    // Set headers for SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+    
+    // Add client to set
+    sseClients.add(res);
+    
+    // Send initial current image
+    try {
+        const image = slideshowEngine.getCurrentImage();
+        if (image) {
+            const preload = slideshowEngine.getPreloadImages(3);
+            const data = JSON.stringify({
+                type: 'image',
+                image,
+                preload,
+                settings: slideshowEngine.getSettings(),
+                isPlaying: isSlideshowPlaying
+            });
+            res.write(`data: ${data}\n\n`);
+        }
+    } catch (error) {
+        console.error('Error sending initial image to SSE client:', error);
+    }
+    
+    // Remove client on disconnect
+    req.on('close', () => {
+        sseClients.delete(res);
+        res.end();
+    });
 });
 
 // Database reset endpoint
@@ -149,14 +250,22 @@ async function startServer() {
         // Graceful shutdown
         process.on('SIGINT', () => {
             console.log('\nShutting down...');
+            stopServerSlideshow();
             watcher.stop();
+            // Close all SSE connections
+            sseClients.forEach(client => client.end());
+            sseClients.clear();
             db.close();
             process.exit(0);
         });
 
         process.on('SIGTERM', () => {
             console.log('\nShutting down...');
+            stopServerSlideshow();
             watcher.stop();
+            // Close all SSE connections
+            sseClients.forEach(client => client.end());
+            sseClients.clear();
             db.close();
             process.exit(0);
         });
@@ -177,6 +286,9 @@ async function startServer() {
             console.log('Start normally with: npm start');
             process.exit(0);
         }
+        
+        // Start server-side slideshow
+        startServerSlideshow();
         
         // Start background geolocation lookup
         if (!forceIndex) {

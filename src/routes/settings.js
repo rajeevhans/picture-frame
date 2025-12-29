@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-function createSettingsRoutes(db, slideshowEngine) {
+function createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServerSlideshowInterval) {
     // Get current settings
     router.get('/', (req, res) => {
         try {
@@ -45,6 +45,34 @@ function createSettingsRoutes(db, slideshowEngine) {
             }
 
             const newSettings = slideshowEngine.updateSettings(updates);
+
+            // Update server-side slideshow interval if it changed
+            if (updates.interval !== undefined && updateServerSlideshowInterval) {
+                updateServerSlideshowInterval();
+            }
+
+            // Broadcast settings update to all clients
+            if (broadcastUpdate) {
+                // If settings changed that affect the current image (like favorites filter),
+                // also send the current image
+                if (updates.favoritesOnly !== undefined || updates.mode !== undefined || updates.order !== undefined) {
+                    const image = slideshowEngine.getCurrentImage();
+                    if (image) {
+                        const preload = slideshowEngine.getPreloadImages(3);
+                        broadcastUpdate('image', {
+                            image,
+                            preload,
+                            settings: newSettings,
+                            isPlaying: true
+                        });
+                    }
+                } else {
+                    // Just broadcast settings change
+                    broadcastUpdate('settings', {
+                        settings: newSettings
+                    });
+                }
+            }
 
             res.json({
                 success: true,

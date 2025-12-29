@@ -5,7 +5,7 @@ const sharp = require('sharp');
 const ImageRotationService = require('../services/imageRotation');
 const router = express.Router();
 
-function createImageRoutes(db, slideshowEngine) {
+function createImageRoutes(db, slideshowEngine, broadcastUpdate) {
     const rotationService = new ImageRotationService();
     // Get current image
     router.get('/current', (req, res) => {
@@ -37,11 +37,22 @@ function createImageRoutes(db, slideshowEngine) {
             }
 
             const preload = slideshowEngine.getPreloadImages(3);
+            const settings = slideshowEngine.getSettings();
+
+            // Broadcast to all clients
+            if (broadcastUpdate) {
+                broadcastUpdate('image', {
+                    image,
+                    preload,
+                    settings,
+                    isPlaying: true
+                });
+            }
 
             res.json({
                 image,
                 preload,
-                settings: slideshowEngine.getSettings()
+                settings
             });
         } catch (error) {
             console.error('Error getting next image:', error);
@@ -58,11 +69,22 @@ function createImageRoutes(db, slideshowEngine) {
             }
 
             const preload = slideshowEngine.getPreloadImages(3);
+            const settings = slideshowEngine.getSettings();
+
+            // Broadcast to all clients
+            if (broadcastUpdate) {
+                broadcastUpdate('image', {
+                    image,
+                    preload,
+                    settings,
+                    isPlaying: true
+                });
+            }
 
             res.json({
                 image,
                 preload,
-                settings: slideshowEngine.getSettings()
+                settings
             });
         } catch (error) {
             console.error('Error getting previous image:', error);
@@ -182,6 +204,14 @@ function createImageRoutes(db, slideshowEngine) {
                 slideshowEngine.refreshImageList();
             }
 
+            // Broadcast favorite update to all clients
+            if (broadcastUpdate) {
+                broadcastUpdate('favorite', {
+                    imageId,
+                    isFavorite: image.is_favorite === 1
+                });
+            }
+
             res.json({
                 success: true,
                 isFavorite: image.is_favorite === 1
@@ -238,6 +268,18 @@ function createImageRoutes(db, slideshowEngine) {
 
             // Move to next image
             const nextImage = slideshowEngine.getNextImage();
+            const preload = slideshowEngine.getPreloadImages(3);
+            const settings = slideshowEngine.getSettings();
+
+            // Broadcast deletion and new image to all clients
+            if (broadcastUpdate) {
+                broadcastUpdate('image', {
+                    image: nextImage,
+                    preload,
+                    settings,
+                    isPlaying: true
+                });
+            }
 
             res.json({
                 success: true,

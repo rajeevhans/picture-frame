@@ -7,7 +7,8 @@ const state = {
     controlsVisible: false,
     controlsTimer: null,
     mouseMoveTimer: null,
-    infoVisible: false
+    infoVisible: false,
+    eventSource: null
 };
 
 // DOM elements
@@ -64,19 +65,82 @@ async function init() {
     updateClock();
     setInterval(updateClock, 1000);
     
-    // Load current image
-    await loadCurrentImage();
+    // Connect to SSE for real-time updates (will receive initial image via SSE)
+    connectToSSE();
     
     // Setup event listeners
     setupEventListeners();
     
-    // Auto-start slideshow
-    startSlideshow();
-    
     // Hide controls after delay
     showControls();
     
-    console.log('Picture Frame initialized');
+    console.log('Picture Frame initialized - waiting for SSE updates');
+}
+
+// Connect to Server-Sent Events for real-time updates
+function connectToSSE() {
+    if (state.eventSource) {
+        state.eventSource.close();
+    }
+    
+    state.eventSource = new EventSource('/api/events');
+    
+    state.eventSource.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            handleSSEMessage(data);
+        } catch (error) {
+            console.error('Error parsing SSE message:', error);
+        }
+    };
+    
+    state.eventSource.onerror = (error) => {
+        console.error('SSE connection error:', error);
+        // Attempt to reconnect after 3 seconds
+        setTimeout(() => {
+            if (state.eventSource && state.eventSource.readyState === EventSource.CLOSED) {
+                console.log('Reconnecting to SSE...');
+                connectToSSE();
+            }
+        }, 3000);
+    };
+    
+    console.log('Connected to SSE stream');
+}
+
+// Handle SSE messages
+function handleSSEMessage(data) {
+    switch (data.type) {
+        case 'image':
+            // Update current image
+            displayImage(data.image, data.preload);
+            updateSettings(data.settings);
+            state.isPlaying = data.isPlaying || false;
+            updatePlayPauseButton();
+            break;
+            
+        case 'favorite':
+            // Update favorite status
+            if (state.currentImage && state.currentImage.id === data.imageId) {
+                state.currentImage.isFavorite = data.isFavorite;
+                updateFavoriteButton();
+            }
+            break;
+            
+        case 'settings':
+            // Update settings
+            updateSettings(data.settings);
+            break;
+            
+        case 'slideshowState':
+            // Update slideshow play/pause state
+            state.isPlaying = data.isPlaying || false;
+            updatePlayPauseButton();
+            break;
+            
+        default:
+            console.log('Unknown SSE message type:', data.type);
+    }
 }
 
 // API calls
@@ -104,6 +168,8 @@ async function loadCurrentImage() {
         showNoImages();
     }
 }
+
+// Note: loadCurrentImage is kept for initial load, but SSE will handle updates
 
 async function loadNextImage() {
     try {
@@ -222,14 +288,8 @@ async function saveSettings() {
         updateSettings(data.settings);
         closeSettings();
         
-        // Restart slideshow with new interval
-        if (state.isPlaying) {
-            stopSlideshow();
-            startSlideshow();
-        }
-        
-        // Reload current image if filters changed
-        await loadCurrentImage();
+        // Server will handle slideshow interval update and broadcast new image if filters changed
+        // No need to manually reload - SSE will handle it
     } catch (error) {
         console.error('Failed to save settings:', error);
         alert('Failed to save settings');
@@ -524,41 +584,27 @@ function preloadImages(images) {
     });
 }
 
-// Slideshow controls
+// Slideshow controls - now server-side controlled
+// The server manages the slideshow timer, clients just display the state
 function startSlideshow() {
-    if (state.isPlaying) return;
-    
-    state.isPlaying = true;
-    updatePlayPauseButton();
-    
-    const interval = state.settings?.interval || 10;
-    state.slideshowTimer = setInterval(() => {
-        loadNextImage();
-    }, interval * 1000);
-    
-    console.log(`Slideshow started (${interval}s interval)`);
+    // Server-side slideshow is always running
+    // This function is kept for compatibility but doesn't control slideshow
+    // The play/pause state comes from the server via SSE
+    console.log('Slideshow is server-side controlled');
 }
 
 function stopSlideshow() {
-    if (!state.isPlaying) return;
-    
-    state.isPlaying = false;
-    updatePlayPauseButton();
-    
-    if (state.slideshowTimer) {
-        clearInterval(state.slideshowTimer);
-        state.slideshowTimer = null;
-    }
-    
-    console.log('Slideshow stopped');
+    // Server-side slideshow is always running
+    // This function is kept for compatibility but doesn't control slideshow
+    // The play/pause state comes from the server via SSE
+    console.log('Slideshow is server-side controlled');
 }
 
 function toggleSlideshow() {
-    if (state.isPlaying) {
-        stopSlideshow();
-    } else {
-        startSlideshow();
-    }
+    // Server-side slideshow is always running
+    // This function is kept for compatibility but doesn't actually control slideshow
+    // The play/pause state comes from the server via SSE
+    console.log('Slideshow toggle - server-side controlled (always playing)');
 }
 
 function updatePlayPauseButton() {
