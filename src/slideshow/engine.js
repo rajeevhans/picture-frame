@@ -149,7 +149,7 @@ class SlideshowEngine {
     }
 
     selectSmartImage() {
-        // Smart selection: weight by favorites and recency
+        // Smart selection: weight by favorites, recency, and "this day"
         const weights = this.imageList.map((img, index) => {
             let weight = 1;
 
@@ -158,14 +158,21 @@ class SlideshowEngine {
                 weight *= 3;
             }
 
-            // Recent photos (within last year) get 2x weight
+            // Recent photos (within last month) get 2x weight
             if (img.date_taken) {
                 const photoDate = new Date(img.date_taken);
-                const oneYearAgo = new Date();
-                oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+                const oneMonthAgo = new Date();
+                oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
                 
-                if (photoDate > oneYearAgo) {
+                if (photoDate > oneMonthAgo) {
                     weight *= 2;
+                }
+                
+                // Photos from "this day in history" get 10x weight
+                const today = new Date();
+                if (photoDate.getMonth() === today.getMonth() && 
+                    photoDate.getDate() === today.getDate()) {
+                    weight *= 10;
                 }
             }
 
