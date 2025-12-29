@@ -271,6 +271,12 @@ function displayImage(image, preloadImages = []) {
         elements.mainImage.classList.add('current');
         elements.mainImage.classList.remove('next');
         elements.mainImage.style.opacity = '0';
+        elements.mainImage.style.zIndex = '1'; // Ensure it's on top
+        
+        // Ensure nextImage is hidden and reset
+        elements.nextImage.style.display = 'none';
+        elements.nextImage.classList.remove('current', 'next');
+        elements.nextImage.style.zIndex = '';
         
         elements.mainImage.onload = () => {
             elements.mainImage.style.opacity = '1';
@@ -295,8 +301,12 @@ function displayImage(image, preloadImages = []) {
             // Image already loaded, swap immediately
             swapImages(currentImg, nextImg, image);
         } else {
-            // Load new image
+            // Load new image - set up as next image before loading
+            nextImg.classList.remove('current');
+            nextImg.classList.add('next');
             nextImg.style.display = 'block';
+            nextImg.style.opacity = '0'; // Start invisible
+            nextImg.style.zIndex = '2'; // Ensure it's above current during transition
             nextImg.src = imageUrl;
             nextImg.alt = image.filename;
             
@@ -308,6 +318,8 @@ function displayImage(image, preloadImages = []) {
             nextImg.onerror = () => {
                 console.error('Failed to load image:', imageUrl);
                 nextImg.style.display = 'none';
+                nextImg.classList.remove('next');
+                nextImg.style.zIndex = '';
             };
         }
     }
@@ -323,18 +335,22 @@ function displayImage(image, preloadImages = []) {
 
 function swapImages(currentImg, nextImg, image) {
     // Crossfade: fade out current, fade in next
-    currentImg.classList.remove('current');
-    currentImg.classList.add('next');
+    // Remove all classes from old image and ensure it's below the new one
+    currentImg.classList.remove('current', 'next');
     currentImg.style.opacity = '0';
+    currentImg.style.zIndex = '0'; // Ensure old image is below new one
     
+    // Make new image the current one with proper z-index
     nextImg.classList.remove('next');
     nextImg.classList.add('current');
     nextImg.style.opacity = '1';
+    nextImg.style.zIndex = '1'; // Ensure new image is on top
     
-    // Hide current image after transition completes
+    // Hide old image after transition completes
     setTimeout(() => {
         if (!currentImg.classList.contains('current')) {
             currentImg.style.display = 'none';
+            currentImg.style.zIndex = ''; // Reset z-index
         }
     }, 600);
     
@@ -349,7 +365,11 @@ function swapImages(currentImg, nextImg, image) {
 
 function showNoImages() {
     elements.mainImage.style.display = 'none';
+    elements.mainImage.classList.remove('current', 'next');
+    elements.mainImage.style.zIndex = '';
     elements.nextImage.style.display = 'none';
+    elements.nextImage.classList.remove('current', 'next');
+    elements.nextImage.style.zIndex = '';
     elements.loadingIndicator.style.display = 'none';
     elements.noImagesMessage.style.display = 'block';
     state.currentImage = null;

@@ -24,6 +24,8 @@ body.show-cursor {
     align-items: center;
     justify-content: center;
     background: #000;
+    background: radial-gradient(ellipse at center, #0f0f0f 0%, #000 100%);
+    transition: background 1.5s ease-in-out;
     position: relative;
 }
 
@@ -39,6 +41,7 @@ body.show-cursor {
     opacity: 0;
     transition: opacity 0.6s ease-in-out;
     pointer-events: none;
+    z-index: 0; /* Default: images without classes are below */
 }
 
 .main-image.current {
@@ -47,7 +50,7 @@ body.show-cursor {
 }
 
 .main-image.next {
-    z-index: 2;
+    z-index: 2; /* Incoming image should be on top during transition */
 }
 
 .main-image.loaded {
@@ -166,6 +169,7 @@ body.show-cursor {
     opacity: 0;
     transition: opacity 0.3s ease;
     pointer-events: none;
+    z-index: 20; /* Above images (which have z-index up to 2) */
 }
 
 .control-overlay.visible {
@@ -194,6 +198,7 @@ body.show-cursor {
     opacity: 0;
     transition: opacity 0.3s ease;
     pointer-events: none;
+    z-index: 20; /* Above images (which have z-index up to 2) */
 }
 
 .control-bar.bottom-bar.visible {
