@@ -119,21 +119,31 @@ function createImageRoutes(db, slideshowEngine) {
             // Convert HEIF to JPEG on-the-fly, or serve directly
             if (isHeif) {
                 try {
-                    // Convert HEIF to JPEG and stream to response
-                    const pipeline = sharp(absolutePath)
-                        .jpeg({ quality: 90 })
-                        .pipe(res);
+                    // Check if Sharp supports HEIF by attempting to read metadata
+                    const metadata = await sharp(absolutePath).metadata();
                     
-                    pipeline.on('error', (err) => {
-                        if (!res.headersSent) {
-                            console.error(`Error converting HEIF ${image.filepath}:`, err.message);
-                            res.status(500).json({ error: 'Failed to convert image' });
-                        }
-                    });
+                    // Convert HEIF to JPEG and stream to response
+                    sharp(absolutePath)
+                        .jpeg({ quality: 90 })
+                        .on('error', (err) => {
+                            if (!res.headersSent) {
+                                console.error(`HEIF conversion error for ${image.filepath}:`, err.message);
+                                console.error('HEIF support may not be installed. Install with: sudo apt-get install libheif-dev libde265-dev libx265-dev');
+                                res.status(415).json({ 
+                                    error: 'HEIF format not supported',
+                                    message: 'HEIF decoding libraries not installed. Install libheif-dev, libde265-dev, and libx265-dev, then rebuild Sharp.'
+                                });
+                            }
+                        })
+                        .pipe(res);
                 } catch (conversionError) {
                     if (!res.headersSent) {
-                        console.error(`Error converting HEIF ${image.filepath}:`, conversionError.message);
-                        res.status(500).json({ error: 'Failed to convert HEIF image' });
+                        console.error(`HEIF conversion error for ${image.filepath}:`, conversionError.message);
+                        console.error('HEIF support may not be installed. Install with: sudo apt-get install libheif-dev libde265-dev libx265-dev');
+                        res.status(415).json({ 
+                            error: 'HEIF format not supported',
+                            message: 'HEIF decoding libraries not installed. Install libheif-dev, libde265-dev, and libx265-dev, then rebuild Sharp.'
+                        });
                     }
                 }
             } else {
