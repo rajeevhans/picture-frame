@@ -600,11 +600,14 @@ function stopSlideshow() {
     console.log('Slideshow is server-side controlled');
 }
 
-function toggleSlideshow() {
-    // Server-side slideshow is always running
-    // This function is kept for compatibility but doesn't actually control slideshow
-    // The play/pause state comes from the server via SSE
-    console.log('Slideshow toggle - server-side controlled (always playing)');
+async function toggleSlideshow() {
+    // Server-side authoritative: request start/pause, then SSE will broadcast final state
+    try {
+        const endpoint = state.isPlaying ? '/slideshow/pause' : '/slideshow/start';
+        await apiCall(endpoint, { method: 'POST' });
+    } catch (error) {
+        console.error('Failed to toggle slideshow:', error);
+    }
 }
 
 function updatePlayPauseButton() {

@@ -130,6 +130,35 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: Date.now() });
 });
 
+// Slideshow control endpoints (server-side authoritative)
+app.get('/api/slideshow/state', (req, res) => {
+    res.json({
+        isPlaying: isSlideshowPlaying,
+        interval: slideshowEngine.settings.interval || 10
+    });
+});
+
+app.post('/api/slideshow/start', (req, res) => {
+    try {
+        startServerSlideshow();
+        broadcastUpdate('slideshowState', { isPlaying: isSlideshowPlaying });
+        res.json({ success: true, isPlaying: isSlideshowPlaying });
+    } catch (error) {
+        console.error('Error starting server slideshow:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.post('/api/slideshow/pause', (req, res) => {
+    try {
+        stopServerSlideshow();
+        res.json({ success: true, isPlaying: isSlideshowPlaying });
+    } catch (error) {
+        console.error('Error pausing server slideshow:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 // SSE endpoint for real-time updates
 app.get('/api/events', (req, res) => {
     // Set headers for SSE
@@ -164,6 +193,11 @@ app.get('/api/events', (req, res) => {
         sseClients.delete(res);
         res.end();
     });
+});
+
+// Convenience route: /remote -> /remote/
+app.get('/remote', (req, res) => {
+    res.redirect(302, '/remote/');
 });
 
 // Database reset endpoint
