@@ -315,6 +315,14 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             db.setRotation(imageId, 0);
             
             console.log(`Rotated image ${imageId} left (counter-clockwise)`);
+
+            // Tell all clients to reload this image with cache-busting
+            if (broadcastUpdate) {
+                broadcastUpdate('rotate', {
+                    imageId,
+                    cacheBuster: Date.now() + Math.random()
+                });
+            }
             
             res.json({
                 success: true,
@@ -348,6 +356,14 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             db.setRotation(imageId, 0);
             
             console.log(`Rotated image ${imageId} right (clockwise)`);
+
+            // Tell all clients to reload this image with cache-busting
+            if (broadcastUpdate) {
+                broadcastUpdate('rotate', {
+                    imageId,
+                    cacheBuster: Date.now() + Math.random()
+                });
+            }
             
             res.json({
                 success: true,

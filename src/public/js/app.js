@@ -141,6 +141,19 @@ function handleSSEMessage(data) {
             }
             updatePlayPauseButton();
             break;
+
+        case 'rotate':
+            // Reload the currently displayed image with aggressive cache busting
+            if (state.currentImage && state.currentImage.id === data.imageId) {
+                const t = data.cacheBuster || (Date.now() + Math.random());
+                const currentEl = elements.mainImage.classList.contains('current') ? elements.mainImage : elements.nextImage;
+                const imageId = state.currentImage.id;
+                currentEl.src = '';
+                setTimeout(() => {
+                    currentEl.src = `/api/image/${imageId}/serve?t=${t}&nocache=1`;
+                }, 50);
+            }
+            break;
             
         default:
             console.log('Unknown SSE message type:', data.type);

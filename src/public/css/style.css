@@ -10,6 +10,8 @@ body {
     color: #fff;
     overflow: hidden;
     cursor: none;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: geometricPrecision;
 }
 
 body.show-cursor {
@@ -85,12 +87,12 @@ body.show-cursor {
     left: 30px;
     background: transparent;
     padding: 12px 20px;
-    font-size: 40px;
+    font-size: 80px;
     color: #fff;
-    font-weight: 100;
+    font-weight: 300;
     transition: opacity 0.3s ease;
     z-index: 10;
-    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.329);
+    text-shadow: none;
 }
 
 .location-overlay.hidden {
@@ -104,14 +106,14 @@ body.show-cursor {
 /* Clock display */
 .clock-display {
     position: absolute;
-    top: 30px;
-    right: 30px;
-    font-size: 96px;
+    top: 60px;
+    right: 60px;
+    font-size: 128px;
     color: #fff;
-    font-weight: 100;
+    font-weight: 300;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     z-index: 10;
-    text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.5);
+    text-shadow: none;
     pointer-events: none;
 }
 

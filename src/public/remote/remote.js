@@ -9,6 +9,8 @@ const els = {
   pauseBtn: document.getElementById('pauseBtn'),
   startBtn: document.getElementById('startBtn'),
   favoriteBtn: document.getElementById('favoriteBtn'),
+  rotateLeftBtn: document.getElementById('rotateLeftBtn'),
+  rotateRightBtn: document.getElementById('rotateRightBtn'),
   deleteBtn: document.getElementById('deleteBtn'),
 };
 
@@ -71,7 +73,16 @@ function updatePlayButtons() {
 }
 
 function setBusy(busy) {
-  const buttons = [els.prevBtn, els.nextBtn, els.pauseBtn, els.startBtn, els.favoriteBtn, els.deleteBtn];
+  const buttons = [
+    els.prevBtn,
+    els.nextBtn,
+    els.pauseBtn,
+    els.startBtn,
+    els.favoriteBtn,
+    els.rotateLeftBtn,
+    els.rotateRightBtn,
+    els.deleteBtn
+  ];
   if (busy) {
     buttons.forEach(b => (b.disabled = true));
     return;
@@ -82,6 +93,8 @@ function setBusy(busy) {
   updatePlayButtons();
   if (!state.currentImage) {
     els.favoriteBtn.disabled = true;
+    els.rotateLeftBtn.disabled = true;
+    els.rotateRightBtn.disabled = true;
     els.deleteBtn.disabled = true;
   }
 }
@@ -141,6 +154,13 @@ function handleMessage(msg) {
       }
       updatePlayButtons();
       break;
+
+    case 'rotate':
+      if (state.currentImage && state.currentImage.id === msg.imageId) {
+        const t = msg.cacheBuster || (Date.now() + Math.random());
+        els.thumb.src = `/api/image/${msg.imageId}/serve?t=${t}&nocache=1`;
+      }
+      break;
   }
 }
 
@@ -190,6 +210,20 @@ async function toggleFavorite() {
   }
 }
 
+async function rotate(direction) {
+  if (!state.currentImage) return;
+  setBusy(true);
+  try {
+    const endpoint = direction === 'left' ? 'rotate-left' : 'rotate-right';
+    await apiCall(`/image/${state.currentImage.id}/${endpoint}`, { method: 'POST' });
+    // Immediately bust cache for the remote preview; TV will update via SSE rotate event.
+    const t = Date.now() + Math.random();
+    els.thumb.src = `/api/image/${state.currentImage.id}/serve?t=${t}&nocache=1`;
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function deleteCurrent() {
   if (!state.currentImage) return;
   const ok = confirm('Delete this image? This moves it to data/deleted and removes it from the database.');
@@ -209,6 +243,8 @@ function wireUI() {
   els.pauseBtn.addEventListener('click', pause);
   els.startBtn.addEventListener('click', start);
   els.favoriteBtn.addEventListener('click', toggleFavorite);
+  els.rotateLeftBtn.addEventListener('click', () => rotate('left'));
+  els.rotateRightBtn.addEventListener('click', () => rotate('right'));
   els.deleteBtn.addEventListener('click', deleteCurrent);
 }
 
