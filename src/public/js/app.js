@@ -115,7 +115,9 @@ function handleSSEMessage(data) {
             // Update current image
             displayImage(data.image, data.preload);
             updateSettings(data.settings);
-            state.isPlaying = data.isPlaying || false;
+            if (typeof data.isPlaying === 'boolean') {
+                state.isPlaying = data.isPlaying;
+            }
             updatePlayPauseButton();
             break;
             
@@ -134,7 +136,9 @@ function handleSSEMessage(data) {
             
         case 'slideshowState':
             // Update slideshow play/pause state
-            state.isPlaying = data.isPlaying || false;
+            if (typeof data.isPlaying === 'boolean') {
+                state.isPlaying = data.isPlaying;
+            }
             updatePlayPauseButton();
             break;
             

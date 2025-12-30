@@ -36,8 +36,10 @@ const geoService = new GeolocationService();
 
 // SSE clients for broadcasting updates
 const sseClients = new Set();
-let slideshowTimer = null;
+let slideshowTimer = null; // timeout handle (legacy name)
 let isSlideshowPlaying = false;
+let advanceInProgress = false;
+let slideshowTickToken = 0;
 
 // Check command line arguments
 const args = process.argv.slice(2);
@@ -63,52 +65,98 @@ function broadcastUpdate(type, data) {
     });
 }
 
-// Server-side slideshow timer
-function startServerSlideshow() {
-    if (slideshowTimer || isSlideshowPlaying) return;
-    
-    isSlideshowPlaying = true;
-    const interval = slideshowEngine.settings.interval || 10;
-    
-    slideshowTimer = setInterval(() => {
-        try {
-            const image = slideshowEngine.getNextImage();
-            if (image) {
-                const preload = slideshowEngine.getPreloadImages(3);
-                broadcastUpdate('image', {
-                    image,
-                    preload,
-                    settings: slideshowEngine.getSettings(),
-                    isPlaying: true
-                });
-            }
-        } catch (error) {
-            console.error('Error in server slideshow timer:', error);
+function broadcastCurrentImage(image) {
+    if (!image) return;
+    const preload = slideshowEngine.getPreloadImages(3);
+    broadcastUpdate('image', {
+        image,
+        preload,
+        settings: slideshowEngine.getSettings(),
+        isPlaying: isSlideshowPlaying
+    });
+}
+
+function clearSlideshowTimer() {
+    if (slideshowTimer) {
+        clearTimeout(slideshowTimer);
+        slideshowTimer = null;
+    }
+}
+
+async function advanceSlideshow(direction, source = 'unknown') {
+    if (advanceInProgress) return null;
+    advanceInProgress = true;
+    try {
+        let image = null;
+        if (direction === 'next') {
+            image = slideshowEngine.getNextImage();
+        } else if (direction === 'previous') {
+            image = slideshowEngine.getPreviousImage();
         }
+        if (image) {
+            broadcastCurrentImage(image);
+        }
+        return image;
+    } catch (error) {
+        console.error(`Error advancing slideshow (${direction}, ${source}):`, error);
+        return null;
+    } finally {
+        advanceInProgress = false;
+    }
+}
+
+function scheduleNextTick(reason = 'unknown') {
+    if (!isSlideshowPlaying) return;
+    clearSlideshowTimer();
+    // Increment token so any already-queued callbacks become no-ops.
+    const myToken = ++slideshowTickToken;
+    const interval = slideshowEngine.settings.interval || 10;
+    slideshowTimer = setTimeout(async () => {
+        // If a manual navigation or interval change happened, ignore this stale tick.
+        if (myToken !== slideshowTickToken) return;
+        await advanceSlideshow('next', 'timer');
+        scheduleNextTick('timer');
     }, interval * 1000);
-    
-    console.log(`Server-side slideshow started (${interval}s interval)`);
+}
+
+// Server-side slideshow timer (rescheduling timeout, resets on manual navigation)
+function startServerSlideshow() {
+    if (isSlideshowPlaying) return;
+    isSlideshowPlaying = true;
+    scheduleNextTick('start');
+    broadcastUpdate('slideshowState', { isPlaying: true });
+    console.log(`Server-side slideshow started (${slideshowEngine.settings.interval || 10}s interval)`);
 }
 
 function stopServerSlideshow() {
-    if (slideshowTimer) {
-        clearInterval(slideshowTimer);
-        slideshowTimer = null;
-    }
+    clearSlideshowTimer();
+    // Invalidate any queued tick callback
+    slideshowTickToken++;
     isSlideshowPlaying = false;
     broadcastUpdate('slideshowState', { isPlaying: false });
     console.log('Server-side slideshow stopped');
 }
 
 function updateServerSlideshowInterval() {
+    // If playing, reschedule to apply new interval immediately.
     if (isSlideshowPlaying) {
-        stopServerSlideshow();
-        startServerSlideshow();
+        scheduleNextTick('intervalChange');
     }
 }
 
 // API Routes - pass broadcast function and slideshow control functions
-app.use('/api/image', createImageRoutes(db, slideshowEngine, broadcastUpdate));
+app.use('/api/image', createImageRoutes(db, slideshowEngine, {
+    broadcastUpdate,
+    broadcastCurrentImage,
+    advanceSlideshow: async (direction) => {
+        const img = await advanceSlideshow(direction, 'api');
+        if (isSlideshowPlaying) {
+            scheduleNextTick('manualNavigation');
+        }
+        return img;
+    },
+    getIsPlaying: () => isSlideshowPlaying
+}));
 app.use('/api/settings', createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServerSlideshowInterval));
 
 // Serve static files (frontend)
@@ -141,7 +189,6 @@ app.get('/api/slideshow/state', (req, res) => {
 app.post('/api/slideshow/start', (req, res) => {
     try {
         startServerSlideshow();
-        broadcastUpdate('slideshowState', { isPlaying: isSlideshowPlaying });
         res.json({ success: true, isPlaying: isSlideshowPlaying });
     } catch (error) {
         console.error('Error starting server slideshow:', error);

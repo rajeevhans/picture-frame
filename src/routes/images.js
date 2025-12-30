@@ -5,8 +5,12 @@ const sharp = require('sharp');
 const ImageRotationService = require('../services/imageRotation');
 const router = express.Router();
 
-function createImageRoutes(db, slideshowEngine, broadcastUpdate) {
+function createImageRoutes(db, slideshowEngine, ctx) {
     const rotationService = new ImageRotationService();
+    const broadcastUpdate = ctx && ctx.broadcastUpdate;
+    const broadcastCurrentImage = ctx && ctx.broadcastCurrentImage;
+    const advanceSlideshow = ctx && ctx.advanceSlideshow;
+
     // Get current image
     router.get('/current', (req, res) => {
         try {
@@ -31,28 +35,28 @@ function createImageRoutes(db, slideshowEngine, broadcastUpdate) {
     // Get next image
     router.get('/next', (req, res) => {
         try {
-            const image = slideshowEngine.getNextImage();
+            const image = advanceSlideshow ? advanceSlideshow('next') : slideshowEngine.getNextImage();
             if (!image) {
                 return res.status(404).json({ error: 'No images available' });
             }
 
-            const preload = slideshowEngine.getPreloadImages(3);
-            const settings = slideshowEngine.getSettings();
-
-            // Broadcast to all clients
-            if (broadcastUpdate) {
-                broadcastUpdate('image', {
-                    image,
-                    preload,
-                    settings,
-                    isPlaying: true
+            // If advanceSlideshow is async, it may have returned a Promise
+            if (typeof image.then === 'function') {
+                return image.then((resolved) => {
+                    if (!resolved) return res.status(404).json({ error: 'No images available' });
+                    const preload = slideshowEngine.getPreloadImages(3);
+                    const settings = slideshowEngine.getSettings();
+                    return res.json({ image: resolved, preload, settings });
+                }).catch((error) => {
+                    console.error('Error getting next image:', error);
+                    return res.status(500).json({ error: 'Internal server error' });
                 });
             }
 
             res.json({
                 image,
-                preload,
-                settings
+                preload: slideshowEngine.getPreloadImages(3),
+                settings: slideshowEngine.getSettings()
             });
         } catch (error) {
             console.error('Error getting next image:', error);
@@ -63,28 +67,27 @@ function createImageRoutes(db, slideshowEngine, broadcastUpdate) {
     // Get previous image
     router.get('/previous', (req, res) => {
         try {
-            const image = slideshowEngine.getPreviousImage();
+            const image = advanceSlideshow ? advanceSlideshow('previous') : slideshowEngine.getPreviousImage();
             if (!image) {
                 return res.status(404).json({ error: 'No images available' });
             }
 
-            const preload = slideshowEngine.getPreloadImages(3);
-            const settings = slideshowEngine.getSettings();
-
-            // Broadcast to all clients
-            if (broadcastUpdate) {
-                broadcastUpdate('image', {
-                    image,
-                    preload,
-                    settings,
-                    isPlaying: true
+            if (typeof image.then === 'function') {
+                return image.then((resolved) => {
+                    if (!resolved) return res.status(404).json({ error: 'No images available' });
+                    const preload = slideshowEngine.getPreloadImages(3);
+                    const settings = slideshowEngine.getSettings();
+                    return res.json({ image: resolved, preload, settings });
+                }).catch((error) => {
+                    console.error('Error getting previous image:', error);
+                    return res.status(500).json({ error: 'Internal server error' });
                 });
             }
 
             res.json({
                 image,
-                preload,
-                settings
+                preload: slideshowEngine.getPreloadImages(3),
+                settings: slideshowEngine.getSettings()
             });
         } catch (error) {
             console.error('Error getting previous image:', error);
@@ -267,18 +270,18 @@ function createImageRoutes(db, slideshowEngine, broadcastUpdate) {
             slideshowEngine.refreshImageList();
 
             // Move to next image
-            const nextImage = slideshowEngine.getNextImage();
-            const preload = slideshowEngine.getPreloadImages(3);
-            const settings = slideshowEngine.getSettings();
-
-            // Broadcast deletion and new image to all clients
-            if (broadcastUpdate) {
-                broadcastUpdate('image', {
-                    image: nextImage,
-                    preload,
-                    settings,
-                    isPlaying: true
+            const nextImage = advanceSlideshow ? await advanceSlideshow('next') : slideshowEngine.getNextImage();
+            if (!nextImage) {
+                return res.json({
+                    success: true,
+                    nextImage: null,
+                    movedTo: finalDestPath
                 });
+            }
+
+            // If we didn't go through server controller, still broadcast to keep clients in sync
+            if (!advanceSlideshow && broadcastCurrentImage) {
+                broadcastCurrentImage(nextImage);
             }
 
             res.json({

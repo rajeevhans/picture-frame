@@ -10,7 +10,9 @@ class SlideshowEngine {
             interval: 10,
             favoritesOnly: false
         };
-        this.history = [];
+        // Reliable navigation history
+        this.backStack = [];
+        this.forwardStack = [];
         this.maxHistorySize = 50;
     }
 
@@ -67,6 +69,47 @@ class SlideshowEngine {
                 this.currentIndex = 0;
             }
         }
+
+        // Prune history stacks to only include images that still exist in the list
+        const validIds = new Set(this.imageList.map(img => img.id));
+        this.backStack = this.backStack.filter(id => validIds.has(id));
+        this.forwardStack = this.forwardStack.filter(id => validIds.has(id));
+    }
+
+    setCurrentImageById(imageId) {
+        if (!imageId || this.imageList.length === 0) return false;
+        let index = this.imageList.findIndex(img => img.id === imageId);
+        if (index === -1) {
+            // List might be stale (filters changed / deleted); refresh once and retry
+            this.refreshImageList();
+            index = this.imageList.findIndex(img => img.id === imageId);
+        }
+        if (index === -1) return false;
+
+        this.currentIndex = index;
+        this.currentImageId = imageId;
+        this.db.setSetting('current_image_id', imageId);
+        return true;
+    }
+
+    pushBack(id) {
+        if (!id) return;
+        const last = this.backStack[this.backStack.length - 1];
+        if (last === id) return;
+        this.backStack.push(id);
+        if (this.backStack.length > this.maxHistorySize) {
+            this.backStack.shift();
+        }
+    }
+
+    pushForward(id) {
+        if (!id) return;
+        const last = this.forwardStack[this.forwardStack.length - 1];
+        if (last === id) return;
+        this.forwardStack.push(id);
+        if (this.forwardStack.length > this.maxHistorySize) {
+            this.forwardStack.shift();
+        }
     }
 
     getCurrentImage() {
@@ -90,6 +133,18 @@ class SlideshowEngine {
             return null;
         }
 
+        const prevId = this.currentImageId || (this.imageList[this.currentIndex] && this.imageList[this.currentIndex].id);
+
+        // If user went back previously, allow "next" to go forward again
+        if (this.forwardStack.length > 0) {
+            const nextId = this.forwardStack.pop();
+            if (prevId) this.pushBack(prevId);
+            if (nextId && this.setCurrentImageById(nextId)) {
+                return this.getCurrentImage();
+            }
+            // If invalid, fall through to normal selection
+        }
+
         if (this.settings.mode === 'random') {
             // True random
             this.currentIndex = Math.floor(Math.random() * this.imageList.length);
@@ -105,10 +160,10 @@ class SlideshowEngine {
         }
 
         const image = this.getCurrentImage();
-        
-        // Add to history
-        if (image) {
-            this.addToHistory(image.id);
+        if (image && prevId && image.id !== prevId) {
+            this.pushBack(prevId);
+            // New branch: clear forward stack
+            this.forwardStack = [];
         }
 
         return image;
@@ -119,23 +174,20 @@ class SlideshowEngine {
             return null;
         }
 
-        // Try to go back in history
-        if (this.history.length > 1) {
-            // Remove current image from history
-            this.history.pop();
-            // Get previous image
-            const previousId = this.history.pop();
-            
-            // Find it in the image list
-            const index = this.imageList.findIndex(img => img.id === previousId);
-            if (index !== -1) {
-                this.currentIndex = index;
+        const currentId = this.currentImageId || (this.imageList[this.currentIndex] && this.imageList[this.currentIndex].id);
+
+        // Prefer reliable back stack
+        if (this.backStack.length > 0) {
+            const previousId = this.backStack.pop();
+            if (currentId) this.pushForward(currentId);
+            if (previousId && this.setCurrentImageById(previousId)) {
                 return this.getCurrentImage();
             }
         }
 
         // Fallback to simple previous
         if (this.settings.mode === 'sequential') {
+            if (currentId) this.pushForward(currentId);
             this.currentIndex--;
             if (this.currentIndex < 0) {
                 this.currentIndex = this.imageList.length - 1;
@@ -193,13 +245,6 @@ class SlideshowEngine {
         }
 
         return 0;
-    }
-
-    addToHistory(imageId) {
-        this.history.push(imageId);
-        if (this.history.length > this.maxHistorySize) {
-            this.history.shift();
-        }
     }
 
     formatImage(image) {

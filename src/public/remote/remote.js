@@ -72,7 +72,18 @@ function updatePlayButtons() {
 
 function setBusy(busy) {
   const buttons = [els.prevBtn, els.nextBtn, els.pauseBtn, els.startBtn, els.favoriteBtn, els.deleteBtn];
-  buttons.forEach(b => (b.disabled = busy || b.disabled));
+  if (busy) {
+    buttons.forEach(b => (b.disabled = true));
+    return;
+  }
+
+  // Re-enable, then re-apply state-based disabling (play/pause + no current image)
+  buttons.forEach(b => (b.disabled = false));
+  updatePlayButtons();
+  if (!state.currentImage) {
+    els.favoriteBtn.disabled = true;
+    els.deleteBtn.disabled = true;
+  }
 }
 
 function connectToSSE() {
@@ -106,7 +117,9 @@ function handleMessage(msg) {
     case 'image':
       state.currentImage = msg.image || null;
       state.settings = msg.settings || state.settings;
-      state.isPlaying = !!msg.isPlaying;
+      if (typeof msg.isPlaying === 'boolean') {
+        state.isPlaying = msg.isPlaying;
+      }
       updateNowPlaying();
       updatePlayButtons();
       break;
@@ -123,7 +136,9 @@ function handleMessage(msg) {
       break;
 
     case 'slideshowState':
-      state.isPlaying = !!msg.isPlaying;
+      if (typeof msg.isPlaying === 'boolean') {
+        state.isPlaying = msg.isPlaying;
+      }
       updatePlayButtons();
       break;
   }

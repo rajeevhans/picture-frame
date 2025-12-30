@@ -59,11 +59,11 @@ function createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServer
                     const image = slideshowEngine.getCurrentImage();
                     if (image) {
                         const preload = slideshowEngine.getPreloadImages(3);
+                        // Note: do not force isPlaying here; clients keep their current play state
                         broadcastUpdate('image', {
                             image,
                             preload,
-                            settings: newSettings,
-                            isPlaying: true
+                            settings: newSettings
                         });
                     }
                 } else {
