@@ -11,6 +11,9 @@ const NODE_BINARY = process.env.ELECTRON_NODE_BINARY || 'node';
 let mainWindow = null;
 let serverProcess = null;
 
+// Resolve project root reliably (works when running `electron electron/main.js` and when packaged)
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+
 function httpGet(url) {
   return new Promise((resolve, reject) => {
     const req = http.get(url, (res) => {
@@ -45,11 +48,10 @@ async function waitForServer(baseUrl, timeoutMs = 20000) {
 function startServerIfNeeded() {
   if (USE_EXTERNAL_SERVER) return;
 
-  const appPath = app.getAppPath();
-  const serverEntrypoint = path.join(appPath, 'src', 'server.js');
+  const serverEntrypoint = path.join(PROJECT_ROOT, 'src', 'server.js');
 
   serverProcess = spawn(NODE_BINARY, [serverEntrypoint], {
-    cwd: appPath,
+    cwd: PROJECT_ROOT,
     env: {
       ...process.env,
       // Hint that we're running under Electron (optional)
