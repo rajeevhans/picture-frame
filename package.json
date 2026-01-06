@@ -7,7 +7,9 @@
     "start": "node src/server.js",
     "index": "node src/server.js --index",
     "dev": "node src/server.js --dev",
-    "cleanup": "node src/server.js --index"
+    "cleanup": "node src/server.js --index",
+    "electron": "electron electron/main.js",
+    "electron:external": "ELECTRON_USE_EXTERNAL_SERVER=1 electron electron/main.js"
   },
   "keywords": [
     "picture-frame",
@@ -23,6 +25,9 @@
     "chokidar": "^3.5.3",
     "exifreader": "^4.16.0",
     "sharp": "^0.33.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0"
   }
 }
 

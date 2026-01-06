@@ -190,10 +190,16 @@ async function loadCurrentImage() {
 
 async function loadNextImage() {
     try {
+        // Server broadcasts the resulting image via SSE.
+        // Avoid rendering twice (API response + SSE), which causes jittery transitions.
         const data = await apiCall('/image/next');
-        displayImage(data.image, data.preload);
-        updateSettings(data.settings);
-        preloadImages(data.preload);
+
+        // Fallback: if SSE isn't connected, use the response to update the UI.
+        if (!state.eventSource || state.eventSource.readyState !== EventSource.OPEN) {
+            displayImage(data.image, data.preload);
+            updateSettings(data.settings);
+            preloadImages(data.preload);
+        }
     } catch (error) {
         console.error('Failed to load next image:', error);
     }
@@ -201,10 +207,15 @@ async function loadNextImage() {
 
 async function loadPreviousImage() {
     try {
+        // Server broadcasts the resulting image via SSE.
         const data = await apiCall('/image/previous');
-        displayImage(data.image, data.preload);
-        updateSettings(data.settings);
-        preloadImages(data.preload);
+
+        // Fallback: if SSE isn't connected, use the response to update the UI.
+        if (!state.eventSource || state.eventSource.readyState !== EventSource.OPEN) {
+            displayImage(data.image, data.preload);
+            updateSettings(data.settings);
+            preloadImages(data.preload);
+        }
     } catch (error) {
         console.error('Failed to load previous image:', error);
     }
@@ -228,19 +239,19 @@ async function toggleFavorite() {
 async function deleteImage() {
     if (!state.currentImage) return;
     
-    if (!confirm('Are you sure you want to delete this image?')) {
-        return;
-    }
-    
     try {
         const data = await apiCall(`/image/${state.currentImage.id}`, {
             method: 'DELETE'
         });
-        
-        if (data.nextImage) {
-            displayImage(data.nextImage, []);
-        } else {
-            showNoImages();
+
+        // Server broadcasts the resulting image via SSE.
+        // Fallback: if SSE isn't connected, use response to advance immediately.
+        if (!state.eventSource || state.eventSource.readyState !== EventSource.OPEN) {
+            if (data.nextImage) {
+                displayImage(data.nextImage, []);
+            } else {
+                showNoImages();
+            }
         }
     } catch (error) {
         console.error('Failed to delete image:', error);

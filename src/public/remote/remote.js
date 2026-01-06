@@ -226,8 +226,6 @@ async function rotate(direction) {
 
 async function deleteCurrent() {
   if (!state.currentImage) return;
-  const ok = confirm('Delete this image? This moves it to data/deleted and removes it from the database.');
-  if (!ok) return;
 
   setBusy(true);
   try {

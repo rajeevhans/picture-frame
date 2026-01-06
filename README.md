@@ -75,6 +75,34 @@ npm start
 
 Open browser to `http://localhost:3000`
 
+## Electron App (Alternative to Kiosk Browser)
+
+You can run the same UI inside an Electron fullscreen window instead of launching Chromium in kiosk mode.
+
+### How it works
+- Electron starts your existing server (`src/server.js`) as a child process (unless you opt out)
+- Waits for `GET /api/health`
+- Opens a fullscreen/kiosk Electron window pointed at `http://localhost:3000`
+
+### Run
+
+```bash
+npm run electron
+```
+
+### Use an external server (advanced)
+If you already have the server running separately (`npm start`), run:
+
+```bash
+npm run electron:external
+```
+
+### Environment variables
+- `PICTUREFRAME_URL`: defaults to `http://localhost:3000`
+- `ELECTRON_USE_EXTERNAL_SERVER=1`: do not spawn `src/server.js`
+- `ELECTRON_KIOSK=0`: disable kiosk mode (still fullscreen)
+- `ELECTRON_NODE_BINARY`: defaults to `node` (only used when spawning the server)
+
 ## Configuration
 
 Edit `config.json`:
