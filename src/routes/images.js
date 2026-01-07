@@ -134,10 +134,11 @@ function createImageRoutes(db, slideshowEngine, ctx) {
                     'Expires': '0'
                 });
             } else {
-                // Normal caching
+                // Normal caching - use file modification time for better cache busting
+                const etag = `${image.id}-${image.file_modified}-${image.updated_at}`;
                 res.set({
                     'Cache-Control': 'public, max-age=86400', // 24 hours
-                    'ETag': `${image.id}-${image.file_modified}`
+                    'ETag': etag
                 });
             }
             
@@ -314,6 +315,10 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             // Reset rotation to 0 since we've physically rotated the file
             db.setRotation(imageId, 0);
             
+            // Update file modification time for cache busting
+            const stats = fs.statSync(path.resolve(image.filepath));
+            db.updateFileModified(imageId, stats.mtimeMs);
+            
             console.log(`Rotated image ${imageId} left (counter-clockwise)`);
 
             // Tell all clients to reload this image with cache-busting
@@ -355,6 +360,10 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             // Reset rotation to 0 since we've physically rotated the file
             db.setRotation(imageId, 0);
             
+            // Update file modification time for cache busting
+            const stats = fs.statSync(path.resolve(image.filepath));
+            db.updateFileModified(imageId, stats.mtimeMs);
+            
             console.log(`Rotated image ${imageId} right (clockwise)`);
 
             // Tell all clients to reload this image with cache-busting
@@ -377,6 +386,88 @@ function createImageRoutes(db, slideshowEngine, ctx) {
                 error: 'Failed to rotate image',
                 message: error.message 
             });
+        }
+    });
+
+    // Download image
+    router.get('/:id/download', async (req, res) => {
+        try {
+            const imageId = parseInt(req.params.id);
+            const image = db.getImageById(imageId);
+
+            if (!image) {
+                return res.status(404).json({ error: 'Image not found' });
+            }
+
+            // Resolve to absolute path
+            const absolutePath = path.resolve(image.filepath);
+            
+            // Check if file exists
+            if (!fs.existsSync(absolutePath)) {
+                return res.status(404).json({ error: 'Image file not found' });
+            }
+
+            // Get the original filename
+            const originalFilename = path.basename(image.filepath);
+            
+            // Check if file is HEIF/HEIC format
+            const ext = path.extname(absolutePath).toLowerCase();
+            const isHeif = ['.heic', '.heif'].includes(ext);
+            
+            // Set download headers
+            if (isHeif) {
+                // Convert HEIF to JPEG for download
+                const jpegFilename = originalFilename.replace(/\.(heic|heif)$/i, '.jpg');
+                res.set({
+                    'Content-Disposition': `attachment; filename="${jpegFilename}"`,
+                    'Content-Type': 'image/jpeg'
+                });
+                
+                try {
+                    // Convert HEIF to JPEG and stream to response
+                    sharp(absolutePath)
+                        .jpeg({ quality: 95 })
+                        .on('error', (err) => {
+                            if (!res.headersSent) {
+                                console.error(`HEIF conversion error for download ${image.filepath}:`, err.message);
+                                res.status(415).json({ 
+                                    error: 'HEIF format not supported for download',
+                                    message: 'HEIF decoding libraries not installed.'
+                                });
+                            }
+                        })
+                        .pipe(res);
+                } catch (conversionError) {
+                    if (!res.headersSent) {
+                        console.error(`HEIF conversion error for download ${image.filepath}:`, conversionError.message);
+                        res.status(415).json({ 
+                            error: 'HEIF format not supported for download',
+                            message: 'HEIF decoding libraries not installed.'
+                        });
+                    }
+                }
+            } else {
+                // Set download headers for regular images
+                res.set({
+                    'Content-Disposition': `attachment; filename="${originalFilename}"`,
+                    'Content-Type': 'application/octet-stream'
+                });
+                
+                // Send the file directly
+                res.sendFile(absolutePath, (err) => {
+                    if (err) {
+                        console.error(`Error downloading image ${image.filepath}:`, err.message);
+                        if (!res.headersSent) {
+                            res.status(404).json({ error: 'Image file not found' });
+                        }
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('Error downloading image:', error);
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Internal server error' });
+            }
         }
     });
 

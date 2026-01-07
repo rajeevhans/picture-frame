@@ -31,6 +31,7 @@ const elements = {
     playPauseBtn: document.getElementById('playPauseBtn'),
     favoriteBtn: document.getElementById('favoriteBtn'),
     deleteBtn: document.getElementById('deleteBtn'),
+    downloadBtn: document.getElementById('downloadBtn'),
     rotateLeftBtn: document.getElementById('rotateLeftBtn'),
     rotateRightBtn: document.getElementById('rotateRightBtn'),
     infoBtn: document.getElementById('infoBtn'),
@@ -148,10 +149,25 @@ function handleSSEMessage(data) {
                 const t = data.cacheBuster || (Date.now() + Math.random());
                 const currentEl = elements.mainImage.classList.contains('current') ? elements.mainImage : elements.nextImage;
                 const imageId = state.currentImage.id;
-                currentEl.src = '';
-                setTimeout(() => {
-                    currentEl.src = `/api/image/${imageId}/serve?t=${t}&nocache=1`;
-                }, 50);
+                
+                // Create a temporary image to preload the rotated version
+                const tempImg = new Image();
+                const newImageUrl = `/api/image/${imageId}/serve?t=${t}&nocache=1`;
+                
+                tempImg.onload = () => {
+                    // Once loaded, update the current image
+                    currentEl.src = newImageUrl;
+                    console.log('SSE: Rotated image reloaded successfully');
+                };
+                
+                tempImg.onerror = () => {
+                    console.error('SSE: Failed to reload rotated image');
+                    // Fallback: try without cache busting
+                    currentEl.src = `/api/image/${imageId}/serve?nocache=1`;
+                };
+                
+                // Start preloading
+                tempImg.src = newImageUrl;
             }
             break;
             
@@ -239,8 +255,23 @@ async function toggleFavorite() {
 async function deleteImage() {
     if (!state.currentImage) return;
     
+    // Store the deleted image ID to prevent transition issues
+    const deletedImageId = state.currentImage.id;
+    
+    // Immediately clear the current image to prevent transition bugs
+    // This ensures the new image (from SSE or API response) loads fresh without
+    // trying to transition from a deleted image that no longer exists
+    elements.mainImage.style.opacity = '0';
+    elements.nextImage.style.opacity = '0';
+    elements.mainImage.classList.remove('current', 'next');
+    elements.nextImage.classList.remove('current', 'next');
+    elements.mainImage.style.display = 'none';
+    elements.nextImage.style.display = 'none';
+    // Clear state so displayImage treats next image as fresh load
+    state.currentImage = null;
+    
     try {
-        const data = await apiCall(`/image/${state.currentImage.id}`, {
+        const data = await apiCall(`/image/${deletedImageId}`, {
             method: 'DELETE'
         });
 
@@ -255,6 +286,30 @@ async function deleteImage() {
         }
     } catch (error) {
         console.error('Failed to delete image:', error);
+        // On error, ensure we show no images state
+        showNoImages();
+    }
+}
+
+function downloadImage() {
+    if (!state.currentImage) return;
+    
+    try {
+        // Create a temporary anchor element to trigger download
+        const downloadUrl = `/api/image/${state.currentImage.id}/download`;
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = ''; // Let the server set the filename
+        link.style.display = 'none';
+        
+        // Add to DOM, click, and remove
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        console.log(`Downloading image: ${state.currentImage.filename}`);
+    } catch (error) {
+        console.error('Failed to download image:', error);
     }
 }
 
@@ -347,6 +402,7 @@ function displayImage(image, preloadImages = []) {
     const imageUrl = `/api/image/${image.id}/serve`;
     
     // Check if this is the first image load (no current image visible)
+    // After delete, DOM elements are cleared so this will be false, forcing fresh load
     const hasCurrentImage = elements.mainImage.classList.contains('current') && 
                            elements.mainImage.style.display !== 'none' &&
                            elements.mainImage.complete;
@@ -562,19 +618,33 @@ async function rotateImage(direction) {
         if (response.success) {
             console.log('Image physically rotated, reloading...');
             
-            // Clear the image completely first
+            // Get the current image element
+            const currentImg = elements.mainImage.classList.contains('current') ? elements.mainImage : elements.nextImage;
             const imageId = state.currentImage.id;
-            elements.mainImage.src = '';
             
-            // Force a small delay to ensure cache is cleared
-            await new Promise(resolve => setTimeout(resolve, 100));
-            
-            // Reload with aggressive cache busting
+            // Create a new image element to preload the rotated image
+            const tempImg = new Image();
             const cacheBuster = Date.now() + Math.random();
-            elements.mainImage.src = `/api/image/${imageId}/serve?t=${cacheBuster}&nocache=1`;
+            const newImageUrl = `/api/image/${imageId}/serve?t=${cacheBuster}&nocache=1`;
             
-            // Reset rotation state to 0
-            state.currentImage.rotation = 0;
+            tempImg.onload = () => {
+                // Once the rotated image is loaded, update the display
+                currentImg.src = newImageUrl;
+                // Reset rotation state to 0 since we physically rotated the file
+                if (state.currentImage) {
+                    state.currentImage.rotation = 0;
+                }
+                console.log('Rotated image reloaded successfully');
+            };
+            
+            tempImg.onerror = () => {
+                console.error('Failed to reload rotated image');
+                // Fallback: try to reload without cache busting
+                currentImg.src = `/api/image/${imageId}/serve?nocache=1`;
+            };
+            
+            // Start loading the rotated image
+            tempImg.src = newImageUrl;
         }
     } catch (error) {
         console.error('Failed to rotate image:', error);
@@ -752,6 +822,11 @@ function setupEventListeners() {
         showControls();
     });
     
+    elements.downloadBtn.addEventListener('click', () => {
+        downloadImage();
+        showControls();
+    });
+    
     elements.rotateLeftBtn.addEventListener('click', () => {
         rotateImage('left');
         showControls();
@@ -823,12 +898,20 @@ function setupEventListeners() {
                 break;
             case 's':
             case 'S':
-                if (!elements.settingsPanel.classList.contains('hidden')) {
-                    closeSettings();
+                if (e.ctrlKey || e.metaKey) {
+                    // Ctrl+S or Cmd+S for download
+                    e.preventDefault();
+                    downloadImage();
+                    showControls();
                 } else {
-                    openSettings();
+                    // Regular S for settings
+                    if (!elements.settingsPanel.classList.contains('hidden')) {
+                        closeSettings();
+                    } else {
+                        openSettings();
+                    }
+                    showControls();
                 }
-                showControls();
                 break;
             case 'Escape':
                 if (!elements.settingsPanel.classList.contains('hidden')) {

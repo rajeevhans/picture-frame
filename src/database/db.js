@@ -189,6 +189,11 @@ class DatabaseManager {
         return stmt.run(rotation, Date.now(), id);
     }
 
+    updateFileModified(id, fileModified) {
+        const stmt = this.db.prepare('UPDATE images SET file_modified = ?, updated_at = ? WHERE id = ?');
+        return stmt.run(fileModified, Date.now(), id);
+    }
+
     deleteImageByPath(filepath) {
         const stmt = this.db.prepare('DELETE FROM images WHERE filepath = ?');
         const result = stmt.run(filepath);
