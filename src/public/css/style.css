@@ -159,6 +159,15 @@ body.show-cursor {
 .info-value {
     color: #fff;
     text-align: right;
+    word-break: break-word;
+    max-width: 200px;
+}
+
+.info-value#infoFilename,
+.info-value#infoTags {
+    text-align: left;
+    max-width: none;
+    word-break: break-all;
 }
 
 /* Control overlay */

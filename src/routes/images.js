@@ -1,6 +1,8 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const { spawn } = require('child_process');
 const sharp = require('sharp');
 const ImageRotationService = require('../services/imageRotation');
 const router = express.Router();
@@ -10,6 +12,70 @@ function createImageRoutes(db, slideshowEngine, ctx) {
     const broadcastUpdate = ctx && ctx.broadcastUpdate;
     const broadcastCurrentImage = ctx && ctx.broadcastCurrentImage;
     const advanceSlideshow = ctx && ctx.advanceSlideshow;
+
+    /**
+     * Convert HEIF to JPEG using heif-convert as fallback when Sharp fails
+     * Optimized: Try Sharp first, fallback to heif-convert only on error
+     * @param {string} heifPath - Path to HEIF file
+     * @param {NodeJS.WritableStream} outputStream - Stream to write JPEG to
+     * @param {number} quality - JPEG quality (1-100)
+     * @returns {Promise<void>}
+     */
+    async function convertHeifToJpeg(heifPath, outputStream, quality = 90) {
+        // Use heif-convert since Sharp can't handle compression format 11.6003
+        // heif-convert requires an output file, so we use a temp file
+        const tempFile = path.join(os.tmpdir(), `heif_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`);
+        
+        return new Promise((resolve, reject) => {
+            const heifConvert = spawn('heif-convert', ['-q', quality.toString(), heifPath, tempFile], {
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+            
+            let stderr = '';
+            heifConvert.stderr.on('data', (data) => {
+                // Progress messages go to stderr, we can ignore them
+                stderr += data.toString();
+            });
+            
+            heifConvert.on('close', async (code) => {
+                if (code === 0) {
+                    try {
+                        // Stream the converted file to response
+                        const fileStream = fs.createReadStream(tempFile);
+                        fileStream.pipe(outputStream);
+                        
+                        fileStream.on('end', async () => {
+                            // Clean up temp file
+                            try {
+                                await fs.promises.unlink(tempFile);
+                            } catch (unlinkErr) {
+                                // Ignore cleanup errors
+                            }
+                            resolve();
+                        });
+                        
+                        fileStream.on('error', async (err) => {
+                            // Clean up temp file
+                            try {
+                                await fs.promises.unlink(tempFile);
+                            } catch (unlinkErr) {
+                                // Ignore cleanup errors
+                            }
+                            reject(err);
+                        });
+                    } catch (err) {
+                        reject(err);
+                    }
+                } else {
+                    reject(new Error(`heif-convert failed with code ${code}: ${stderr}`));
+                }
+            });
+            
+            heifConvert.on('error', (spawnErr) => {
+                reject(new Error(`Failed to spawn heif-convert: ${spawnErr.message}. Make sure libheif is installed.`));
+            });
+        });
+    }
 
     // Get current image
     router.get('/current', (req, res) => {
@@ -111,8 +177,10 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             // Resolve to absolute path
             const absolutePath = path.resolve(image.filepath);
             
-            // Check if file exists
-            if (!fs.existsSync(absolutePath)) {
+            // Check if file exists (async to avoid blocking)
+            try {
+                await fs.promises.access(absolutePath, fs.constants.F_OK);
+            } catch (accessError) {
                 return res.status(404).json({ error: 'Image file not found' });
             }
             
@@ -145,30 +213,19 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             // Convert HEIF to JPEG on-the-fly, or serve directly
             if (isHeif) {
                 try {
-                    // Check if Sharp supports HEIF by attempting to read metadata
-                    const metadata = await sharp(absolutePath).metadata();
-                    
-                    // Convert HEIF to JPEG and stream to response
-                    sharp(absolutePath)
-                        .jpeg({ quality: 90 })
-                        .on('error', (err) => {
-                            if (!res.headersSent) {
-                                console.error(`HEIF conversion error for ${image.filepath}:`, err.message);
-                                console.error('HEIF support may not be installed. Install with: sudo apt-get install libheif-dev libde265-dev libx265-dev');
-                                res.status(415).json({ 
-                                    error: 'HEIF format not supported',
-                                    message: 'HEIF decoding libraries not installed. Install libheif-dev, libde265-dev, and libx265-dev, then rebuild Sharp.'
-                                });
-                            }
-                        })
-                        .pipe(res);
+                    await convertHeifToJpeg(absolutePath, res, 90);
                 } catch (conversionError) {
                     if (!res.headersSent) {
+                        const isMacOS = process.platform === 'darwin';
+                        const installCmd = isMacOS 
+                            ? 'brew install libheif'
+                            : 'sudo apt-get install libheif-dev libde265-dev libx265-dev';
+                        
                         console.error(`HEIF conversion error for ${image.filepath}:`, conversionError.message);
-                        console.error('HEIF support may not be installed. Install with: sudo apt-get install libheif-dev libde265-dev libx265-dev');
+                        console.error(`HEIF support may not be installed. Install with: ${installCmd}`);
                         res.status(415).json({ 
                             error: 'HEIF format not supported',
-                            message: 'HEIF decoding libraries not installed. Install libheif-dev, libde265-dev, and libx265-dev, then rebuild Sharp.'
+                            message: `HEIF conversion failed. Make sure libheif is installed (${installCmd}).`
                         });
                     }
                 }
@@ -402,8 +459,10 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             // Resolve to absolute path
             const absolutePath = path.resolve(image.filepath);
             
-            // Check if file exists
-            if (!fs.existsSync(absolutePath)) {
+            // Check if file exists (async to avoid blocking)
+            try {
+                await fs.promises.access(absolutePath, fs.constants.F_OK);
+            } catch (accessError) {
                 return res.status(404).json({ error: 'Image file not found' });
             }
 
@@ -424,25 +483,19 @@ function createImageRoutes(db, slideshowEngine, ctx) {
                 });
                 
                 try {
-                    // Convert HEIF to JPEG and stream to response
-                    sharp(absolutePath)
-                        .jpeg({ quality: 95 })
-                        .on('error', (err) => {
-                            if (!res.headersSent) {
-                                console.error(`HEIF conversion error for download ${image.filepath}:`, err.message);
-                                res.status(415).json({ 
-                                    error: 'HEIF format not supported for download',
-                                    message: 'HEIF decoding libraries not installed.'
-                                });
-                            }
-                        })
-                        .pipe(res);
+                    await convertHeifToJpeg(absolutePath, res, 95);
                 } catch (conversionError) {
                     if (!res.headersSent) {
+                        const isMacOS = process.platform === 'darwin';
+                        const installCmd = isMacOS 
+                            ? 'brew install libheif'
+                            : 'sudo apt-get install libheif-dev libde265-dev libx265-dev';
+                        
                         console.error(`HEIF conversion error for download ${image.filepath}:`, conversionError.message);
+                        console.error(`HEIF support may not be installed. Install with: ${installCmd}`);
                         res.status(415).json({ 
                             error: 'HEIF format not supported for download',
-                            message: 'HEIF decoding libraries not installed.'
+                            message: `HEIF conversion failed. Make sure libheif is installed (${installCmd}).`
                         });
                     }
                 }

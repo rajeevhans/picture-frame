@@ -47,10 +47,13 @@ const elements = {
     resetDatabaseBtn: document.getElementById('resetDatabaseBtn'),
     
     // Info
+    infoFilename: document.getElementById('infoFilename'),
+    infoFileType: document.getElementById('infoFileType'),
     infoDate: document.getElementById('infoDate'),
     infoLocation: document.getElementById('infoLocation'),
     infoCamera: document.getElementById('infoCamera'),
     infoResolution: document.getElementById('infoResolution'),
+    infoTags: document.getElementById('infoTags'),
     
     // Stats
     statTotal: document.getElementById('statTotal'),
@@ -520,6 +523,31 @@ function showNoImages() {
 }
 
 function updateInfoOverlay(image) {
+    // Filename
+    if (image.filename) {
+        elements.infoFilename.textContent = image.filename;
+    } else {
+        elements.infoFilename.textContent = '-';
+    }
+    
+    // File Type (extract from filename extension)
+    if (image.filename) {
+        const ext = image.filename.split('.').pop().toUpperCase();
+        // Map common extensions to readable names
+        const typeMap = {
+            'JPG': 'JPEG',
+            'JPEG': 'JPEG',
+            'PNG': 'PNG',
+            'GIF': 'GIF',
+            'WEBP': 'WebP',
+            'HEIC': 'HEIC',
+            'HEIF': 'HEIF'
+        };
+        elements.infoFileType.textContent = typeMap[ext] || ext;
+    } else {
+        elements.infoFileType.textContent = '-';
+    }
+    
     // Date
     if (image.dateTaken) {
         const date = new Date(image.dateTaken);
@@ -555,6 +583,13 @@ function updateInfoOverlay(image) {
         elements.infoResolution.textContent = `${image.width} × ${image.height}`;
     } else {
         elements.infoResolution.textContent = '-';
+    }
+    
+    // Tags
+    if (image.tags && Array.isArray(image.tags) && image.tags.length > 0) {
+        elements.infoTags.textContent = image.tags.join(', ');
+    } else {
+        elements.infoTags.textContent = '-';
     }
 }
 

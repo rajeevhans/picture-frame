@@ -1,5 +1,5 @@
 {
-  "photoDirectory": "./test_photos",
+  "photoDirectory": "/Users/rhans/Downloads/images/",
   "databasePath": "./data/pictureframe.db",
   "serverPort": 3000,
   "slideshow": {

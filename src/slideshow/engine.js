@@ -14,6 +14,12 @@ class SlideshowEngine {
         this.backStack = [];
         this.forwardStack = [];
         this.maxHistorySize = 50;
+        // Debounce database writes for performance
+        this.dbWriteTimer = null;
+        this.pendingImageId = null;
+        // Cache for smart mode weights
+        this.smartWeights = null;
+        this.smartWeightsTimestamp = 0;
     }
 
     initialize() {
@@ -63,11 +69,21 @@ class SlideshowEngine {
         console.log(`Loaded ${this.imageList.length} images for slideshow`);
 
         // Find current index if we have a current image
-        if (this.currentImageId) {
-            this.currentIndex = this.imageList.findIndex(img => img.id === this.currentImageId);
-            if (this.currentIndex === -1) {
-                this.currentIndex = 0;
+        if (this.currentImageId && this.imageList.length > 0) {
+            // Optimize: check if current index still points to same image
+            if (this.currentIndex >= 0 && 
+                this.currentIndex < this.imageList.length && 
+                this.imageList[this.currentIndex].id === this.currentImageId) {
+                // Index is still valid, no need to search
+            } else {
+                // Need to find the image
+                this.currentIndex = this.imageList.findIndex(img => img.id === this.currentImageId);
+                if (this.currentIndex === -1) {
+                    this.currentIndex = 0;
+                }
             }
+        } else if (this.imageList.length > 0) {
+            this.currentIndex = 0;
         }
 
         // Prune history stacks to only include images that still exist in the list
@@ -123,7 +139,18 @@ class SlideshowEngine {
 
         const image = this.imageList[this.currentIndex];
         this.currentImageId = image.id;
-        this.db.setSetting('current_image_id', image.id);
+        
+        // Debounce database writes to reduce I/O (write after 500ms of no changes)
+        this.pendingImageId = image.id;
+        if (this.dbWriteTimer) {
+            clearTimeout(this.dbWriteTimer);
+        }
+        this.dbWriteTimer = setTimeout(() => {
+            if (this.pendingImageId) {
+                this.db.setSetting('current_image_id', this.pendingImageId);
+                this.pendingImageId = null;
+            }
+        }, 500);
 
         return this.formatImage(image);
     }
@@ -201,44 +228,55 @@ class SlideshowEngine {
     }
 
     selectSmartImage() {
-        // Smart selection: weight by favorites, recency, and "this day"
-        const weights = this.imageList.map((img, index) => {
-            let weight = 1;
+        // Cache weights for 5 seconds to avoid recalculating on every call
+        const now = Date.now();
+        const cacheValid = (now - this.smartWeightsTimestamp) < 5000;
+        
+        if (!this.smartWeights || !cacheValid) {
+            // Smart selection: weight by favorites, recency, and "this day"
+            const today = new Date();
+            const oneMonthAgo = new Date();
+            oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+            const todayMonth = today.getMonth();
+            const todayDate = today.getDate();
+            
+            this.smartWeights = this.imageList.map((img) => {
+                let weight = 1;
 
-            // Favorites get 3x weight
-            if (img.is_favorite) {
-                weight *= 3;
-            }
-
-            // Recent photos (within last month) get 2x weight
-            if (img.date_taken) {
-                const photoDate = new Date(img.date_taken);
-                const oneMonthAgo = new Date();
-                oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-                
-                if (photoDate > oneMonthAgo) {
-                    weight *= 2;
+                // Favorites get 3x weight
+                if (img.is_favorite) {
+                    weight *= 3;
                 }
-                
-                // Photos from "this day in history" get 10x weight
-                const today = new Date();
-                if (photoDate.getMonth() === today.getMonth() && 
-                    photoDate.getDate() === today.getDate()) {
-                    weight *= 10;
-                }
-            }
 
-            return weight;
-        });
+                // Recent photos (within last month) get 2x weight
+                if (img.date_taken) {
+                    const photoDate = new Date(img.date_taken);
+                    
+                    if (photoDate > oneMonthAgo) {
+                        weight *= 2;
+                    }
+                    
+                    // Photos from "this day in history" get 10x weight
+                    if (photoDate.getMonth() === todayMonth && 
+                        photoDate.getDate() === todayDate) {
+                        weight *= 10;
+                    }
+                }
+
+                return weight;
+            });
+            
+            this.smartWeightsTimestamp = now;
+        }
 
         // Calculate total weight
-        const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+        const totalWeight = this.smartWeights.reduce((sum, w) => sum + w, 0);
 
         // Select random weighted index
         let random = Math.random() * totalWeight;
         
-        for (let i = 0; i < weights.length; i++) {
-            random -= weights[i];
+        for (let i = 0; i < this.smartWeights.length; i++) {
+            random -= this.smartWeights[i];
             if (random <= 0) {
                 return i;
             }
@@ -308,6 +346,9 @@ class SlideshowEngine {
 
         if (needsRefresh) {
             this.refreshImageList();
+            // Clear smart mode cache when settings change
+            this.smartWeights = null;
+            this.smartWeightsTimestamp = 0;
             console.log('Slideshow settings updated and image list refreshed');
         }
 
