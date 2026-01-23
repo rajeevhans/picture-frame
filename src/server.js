@@ -29,7 +29,7 @@ const db = new DatabaseManager(dbPath);
 const scanner = new DirectoryScanner(db, config);
 
 // Initialize slideshow engine
-const slideshowEngine = new SlideshowEngine(db);
+const slideshowEngine = new SlideshowEngine(db, config);
 
 // Initialize geolocation service
 const geoService = new GeolocationService();
@@ -67,7 +67,7 @@ function broadcastUpdate(type, data) {
 
 function broadcastCurrentImage(image) {
     if (!image) return;
-    const preload = slideshowEngine.getPreloadImages(3);
+    const preload = slideshowEngine.getPreloadImages();
     broadcastUpdate('image', {
         image,
         preload,
@@ -221,7 +221,7 @@ app.get('/api/events', (req, res) => {
     try {
         const image = slideshowEngine.getCurrentImage();
         if (image) {
-            const preload = slideshowEngine.getPreloadImages(3);
+            const preload = slideshowEngine.getPreloadImages();
             const data = JSON.stringify({
                 type: 'image',
                 image,

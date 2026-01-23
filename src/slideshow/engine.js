@@ -1,5 +1,5 @@
 class SlideshowEngine {
-    constructor(db) {
+    constructor(db, config = {}) {
         this.db = db;
         this.currentIndex = 0;
         this.currentImageId = null;
@@ -20,6 +20,8 @@ class SlideshowEngine {
         // Cache for smart mode weights
         this.smartWeights = null;
         this.smartWeightsTimestamp = 0;
+        // Number of images to preload (from config, default 15)
+        this.preloadCount = (config.slideshow && config.slideshow.numberOfImagesToPreload) || 15;
     }
 
     initialize() {
@@ -355,11 +357,13 @@ class SlideshowEngine {
         return this.getSettings();
     }
 
-    getPreloadImages(count = 3) {
+    getPreloadImages(count = null) {
+        // Use configured preload count if not specified
+        const preloadCount = count !== null ? count : this.preloadCount;
         // Get next N images for preloading
         const preload = [];
         
-        for (let i = 1; i <= count; i++) {
+        for (let i = 1; i <= preloadCount; i++) {
             const nextIndex = (this.currentIndex + i) % this.imageList.length;
             if (nextIndex < this.imageList.length && this.imageList[nextIndex]) {
                 preload.push(this.formatImage(this.imageList[nextIndex]));

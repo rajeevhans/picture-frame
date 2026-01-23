@@ -61,7 +61,10 @@ const elements = {
     // Stats
     statTotal: document.getElementById('statTotal'),
     statFavorites: document.getElementById('statFavorites'),
-    statDeleted: document.getElementById('statDeleted')
+    statDeleted: document.getElementById('statDeleted'),
+    
+    // Matting
+    mattingBackground: document.getElementById('mattingBackground')
 };
 
 // Initialize app
@@ -126,6 +129,7 @@ function handleSSEMessage(data) {
                 state.isPlaying = data.isPlaying;
             }
             updatePlayPauseButton();
+            // Matting background will be applied in displayImage's onload handler
             break;
             
         case 'favorite':
@@ -160,10 +164,12 @@ function handleSSEMessage(data) {
                 const tempImg = new Image();
                 const newImageUrl = `/api/image/${imageId}/serve?t=${t}&nocache=1`;
                 
-                tempImg.onload = () => {
+                tempImg.onload = async () => {
                     // Once loaded, update the current image
                     currentEl.src = newImageUrl;
                     console.log('SSE: Rotated image reloaded successfully');
+                    // Apply matting background for rotated image
+                    await applyMattingBackground(currentEl);
                 };
                 
                 tempImg.onerror = () => {
@@ -519,20 +525,26 @@ function displayImage(image, preloadImages = []) {
         elements.mainImage.classList.add('current');
         elements.mainImage.classList.remove('next');
         elements.mainImage.style.opacity = '0';
-        elements.mainImage.style.zIndex = '1'; // Ensure it's on top
+        elements.mainImage.style.zIndex = '2'; // Ensure it's above matting
         
         // Ensure nextImage is hidden and reset
         elements.nextImage.style.display = 'none';
         elements.nextImage.classList.remove('current', 'next');
         elements.nextImage.style.zIndex = '';
         
-        elements.mainImage.onload = () => {
+        elements.mainImage.onload = async () => {
             elements.mainImage.style.opacity = '1';
             updateInfoOverlay(image);
             updateLocationOverlay(image);
             updateFavoriteButton();
             elements.loadingIndicator.style.display = 'none';
             elements.noImagesMessage.style.display = 'none';
+            
+            // Apply matting background based on image colors
+            // Small delay to ensure image is fully rendered
+            setTimeout(async () => {
+                await applyMattingBackground(elements.mainImage);
+            }, 100);
         };
         
         elements.mainImage.onerror = () => {
@@ -548,19 +560,29 @@ function displayImage(image, preloadImages = []) {
         if (nextImg.src === imageUrl && nextImg.complete) {
             // Image already loaded, swap immediately
             swapImages(currentImg, nextImg, image);
+            // Apply matting background for the already-loaded image
+            setTimeout(async () => {
+                await applyMattingBackground(nextImg);
+            }, 100);
         } else {
             // Load new image - set up as next image before loading
             nextImg.classList.remove('current');
             nextImg.classList.add('next');
             nextImg.style.display = 'block';
             nextImg.style.opacity = '0'; // Start invisible
-            nextImg.style.zIndex = '2'; // Ensure it's above current during transition
+            nextImg.style.zIndex = '3'; // Ensure it's above current during transition
             nextImg.src = imageUrl;
             nextImg.alt = image.filename;
             
             // Wait for image to load before crossfading
-            nextImg.onload = () => {
+            nextImg.onload = async () => {
                 swapImages(currentImg, nextImg, image);
+                
+                // Apply matting background for the new image
+                // Small delay to ensure image is fully rendered
+                setTimeout(async () => {
+                    await applyMattingBackground(nextImg);
+                }, 100);
             };
             
             nextImg.onerror = () => {
@@ -586,13 +608,13 @@ function swapImages(currentImg, nextImg, image) {
     // Remove all classes from old image and ensure it's below the new one
     currentImg.classList.remove('current', 'next');
     currentImg.style.opacity = '0';
-    currentImg.style.zIndex = '0'; // Ensure old image is below new one
+    currentImg.style.zIndex = '1'; // Old image below new one but above matting
     
     // Make new image the current one with proper z-index
     nextImg.classList.remove('next');
     nextImg.classList.add('current');
     nextImg.style.opacity = '1';
-    nextImg.style.zIndex = '1'; // Ensure new image is on top
+    nextImg.style.zIndex = '2'; // New image on top
     
     // Hide old image after transition completes
     setTimeout(() => {
@@ -621,6 +643,10 @@ function showNoImages() {
     elements.loadingIndicator.style.display = 'none';
     elements.noImagesMessage.style.display = 'block';
     state.currentImage = null;
+    
+    // Reset matting background to default
+    elements.mattingBackground.style.opacity = '0';
+    elements.mattingBackground.style.background = '';
 }
 
 function updateInfoOverlay(image) {
@@ -763,7 +789,7 @@ async function rotateImage(direction) {
             const cacheBuster = Date.now() + Math.random();
             const newImageUrl = `/api/image/${imageId}/serve?t=${cacheBuster}&nocache=1`;
             
-            tempImg.onload = () => {
+            tempImg.onload = async () => {
                 // Once the rotated image is loaded, update the display
                 currentImg.src = newImageUrl;
                 // Reset rotation state to 0 since we physically rotated the file
@@ -771,6 +797,8 @@ async function rotateImage(direction) {
                     state.currentImage.rotation = 0;
                 }
                 console.log('Rotated image reloaded successfully');
+                // Apply matting background for rotated image
+                await applyMattingBackground(currentImg);
             };
             
             tempImg.onerror = () => {
@@ -816,6 +844,370 @@ function preloadImages(images) {
         const img = new Image();
         img.src = `/api/image/${image.id}/serve`;
     });
+}
+
+// Extract dominant colors from an image
+async function extractDominantColors(imageElement, colorCount = 3) {
+    return new Promise((resolve) => {
+        try {
+            // Ensure image is loaded
+            if (!imageElement.complete) {
+                console.warn('Image not complete, waiting...');
+                imageElement.onload = () => {
+                    extractDominantColors(imageElement, colorCount).then(resolve);
+                };
+                imageElement.onerror = () => {
+                    console.error('Image failed to load for color extraction');
+                    resolve([
+                        { r: 60, g: 60, b: 60 },
+                        { r: 80, g: 80, b: 80 },
+                        { r: 100, g: 100, b: 100 }
+                    ]);
+                };
+                return;
+            }
+            
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Get actual image dimensions
+            const imgWidth = imageElement.naturalWidth || imageElement.width;
+            const imgHeight = imageElement.naturalHeight || imageElement.height;
+            
+            // Check if we have valid dimensions
+            if (!imgWidth || !imgHeight || imgWidth === 0 || imgHeight === 0) {
+                console.warn('Invalid image dimensions:', imgWidth, imgHeight);
+                resolve([
+                    { r: 60, g: 60, b: 60 },
+                    { r: 80, g: 80, b: 80 },
+                    { r: 100, g: 100, b: 100 }
+                ]);
+                return;
+            }
+            
+            // Set canvas size (smaller for performance, but large enough for accuracy)
+            const maxSize = 200;
+            const aspectRatio = imgWidth / imgHeight;
+            
+            let canvasWidth, canvasHeight;
+            if (aspectRatio > 1) {
+                canvasWidth = maxSize;
+                canvasHeight = Math.round(maxSize / aspectRatio);
+            } else {
+                canvasWidth = Math.round(maxSize * aspectRatio);
+                canvasHeight = maxSize;
+            }
+            
+            // Ensure minimum canvas size
+            if (canvasWidth < 10 || canvasHeight < 10) {
+                console.warn('Canvas too small:', canvasWidth, canvasHeight);
+                resolve([
+                    { r: 60, g: 60, b: 60 },
+                    { r: 80, g: 80, b: 80 },
+                    { r: 100, g: 100, b: 100 }
+                ]);
+                return;
+            }
+            
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+            
+            // Draw image to canvas
+            try {
+                ctx.drawImage(imageElement, 0, 0, canvas.width, canvas.height);
+            } catch (drawError) {
+                console.error('Error drawing image to canvas (possible CORS issue):', drawError);
+                resolve([
+                    { r: 40, g: 40, b: 40 },
+                    { r: 60, g: 60, b: 60 },
+                    { r: 80, g: 80, b: 80 }
+                ]);
+                return;
+            }
+            
+            // Get image data
+            let imageData;
+            try {
+                imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            } catch (dataError) {
+                console.error('Error getting image data (possible CORS issue):', dataError);
+                resolve([
+                    { r: 40, g: 40, b: 40 },
+                    { r: 60, g: 60, b: 60 },
+                    { r: 80, g: 80, b: 80 }
+                ]);
+                return;
+            }
+            
+            const data = imageData.data;
+            
+            // Sample pixels (every Nth pixel for performance)
+            const sampleRate = 5;
+            const colors = [];
+            
+            for (let i = 0; i < data.length; i += 4 * sampleRate) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                const a = data[i + 3];
+                
+                // Skip transparent pixels
+                if (a < 128) continue;
+                
+                // Convert to HSL for better color grouping
+                const hsl = rgbToHsl(r, g, b);
+                
+                // Skip very dark or very light colors (they don't make good matting)
+                if (hsl[2] < 0.15 || hsl[2] > 0.9) continue;
+                
+                // Calculate colorfulness score (prefer colorful over gray)
+                const colorfulness = hsl[1] * hsl[2]; // saturation * lightness
+                
+                colors.push({ r, g, b, hsl, colorfulness });
+            }
+            
+            if (colors.length === 0) {
+                console.log('No suitable colors found, using fallback');
+                // Fallback to neutral colors (brighter so we can see it's working)
+                resolve([
+                    { r: 60, g: 60, b: 60 },
+                    { r: 80, g: 80, b: 80 },
+                    { r: 100, g: 100, b: 100 }
+                ]);
+                return;
+            }
+            
+            // Group similar colors and find dominant ones
+            const dominantColors = findDominantColors(colors, colorCount);
+            
+            console.log('Extracted colors:', dominantColors);
+            resolve(dominantColors);
+        } catch (error) {
+            console.error('Error extracting colors:', error);
+            // Fallback to neutral gray (brighter so we can see it's working)
+            resolve([
+                { r: 60, g: 60, b: 60 },
+                { r: 80, g: 80, b: 80 },
+                { r: 100, g: 100, b: 100 }
+            ]);
+        }
+    });
+}
+
+// Convert RGB to HSL
+function rgbToHsl(r, g, b) {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+    
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let h, s, l = (max + min) / 2;
+    
+    if (max === min) {
+        h = s = 0; // achromatic
+    } else {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        
+        switch (max) {
+            case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+            case g: h = ((b - r) / d + 2) / 6; break;
+            case b: h = ((r - g) / d + 4) / 6; break;
+        }
+    }
+    
+    return [h, s, l];
+}
+
+// Find dominant colors using k-means-like clustering
+function findDominantColors(colors, count) {
+    if (colors.length === 0) return [];
+    
+    // Sort by colorfulness (saturation * lightness) to prioritize vibrant colors
+    colors.sort((a, b) => (b.colorfulness || 0) - (a.colorfulness || 0));
+    
+    // Take the most colorful colors, but ensure we get variety
+    const dominant = [];
+    const usedHues = new Set();
+    const hueTolerance = 0.1; // Colors within this hue difference are considered similar
+    
+    for (const color of colors) {
+        if (dominant.length >= count) break;
+        
+        const hue = color.hsl[0];
+        let isSimilar = false;
+        
+        // Check if we already have a similar hue
+        for (const usedHue of usedHues) {
+            const hueDiff = Math.min(
+                Math.abs(hue - usedHue),
+                Math.abs(hue - usedHue + 1),
+                Math.abs(hue - usedHue - 1)
+            );
+            if (hueDiff < hueTolerance) {
+                isSimilar = true;
+                break;
+            }
+        }
+        
+        // If not similar, add it
+        if (!isSimilar) {
+            usedHues.add(hue);
+            // Adjust brightness for matting (preserve more saturation)
+            const adjusted = adjustColorForMatting(color);
+            dominant.push(adjusted);
+        }
+    }
+    
+    // If we don't have enough colors, fill with remaining most colorful ones
+    if (dominant.length < count) {
+        for (const color of colors) {
+            if (dominant.length >= count) break;
+            const hue = color.hsl[0];
+            let alreadyAdded = false;
+            for (const usedHue of usedHues) {
+                const hueDiff = Math.min(
+                    Math.abs(hue - usedHue),
+                    Math.abs(hue - usedHue + 1),
+                    Math.abs(hue - usedHue - 1)
+                );
+                if (hueDiff < hueTolerance) {
+                    alreadyAdded = true;
+                    break;
+                }
+            }
+            if (!alreadyAdded) {
+                usedHues.add(hue);
+                const adjusted = adjustColorForMatting(color);
+                dominant.push(adjusted);
+            }
+        }
+    }
+    
+    return dominant;
+}
+
+// Adjust color to be suitable for matting (preserve more vibrancy)
+function adjustColorForMatting(color) {
+    const hsl = color.hsl;
+    
+    // Preserve more saturation (only reduce by 20% instead of 50%)
+    const newSaturation = Math.max(0.2, Math.min(0.8, hsl[1] * 0.8));
+    
+    // Slightly darken for matting effect (reduce by 15% instead of 30%)
+    const newLightness = Math.max(0.25, Math.min(0.75, hsl[2] * 0.85));
+    
+    // Convert back to RGB
+    const rgb = hslToRgb(hsl[0], newSaturation, newLightness);
+    
+    return {
+        r: Math.round(rgb[0]),
+        g: Math.round(rgb[1]),
+        b: Math.round(rgb[2])
+    };
+}
+
+// Convert HSL to RGB
+function hslToRgb(h, s, l) {
+    let r, g, b;
+    
+    if (s === 0) {
+        r = g = b = l; // achromatic
+    } else {
+        const hue2rgb = (p, q, t) => {
+            if (t < 0) t += 1;
+            if (t > 1) t -= 1;
+            if (t < 1/6) return p + (q - p) * 6 * t;
+            if (t < 1/2) return q;
+            if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+            return p;
+        };
+        
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q;
+        r = hue2rgb(p, q, h + 1/3);
+        g = hue2rgb(p, q, h);
+        b = hue2rgb(p, q, h - 1/3);
+    }
+    
+    return [r * 255, g * 255, b * 255];
+}
+
+// Apply matting background using dominant colors
+async function applyMattingBackground(imageElement) {
+    try {
+        if (!imageElement || !elements.mattingBackground) {
+            console.warn('Missing image element or matting background element');
+            return;
+        }
+        
+        // Wait for image to be fully loaded with retries
+        let retries = 0;
+        const maxRetries = 10;
+        
+        while (retries < maxRetries) {
+            const imgWidth = imageElement.naturalWidth || imageElement.width;
+            const imgHeight = imageElement.naturalHeight || imageElement.height;
+            
+            if (imageElement.complete && imgWidth > 0 && imgHeight > 0) {
+                break; // Image is ready
+            }
+            
+            // Wait a bit and check again
+            await new Promise(resolve => setTimeout(resolve, 100));
+            retries++;
+        }
+        
+        // Final check dimensions
+        const imgWidth = imageElement.naturalWidth || imageElement.width;
+        const imgHeight = imageElement.naturalHeight || imageElement.height;
+        
+        if (!imgWidth || !imgHeight || imgWidth === 0 || imgHeight === 0) {
+            console.warn('Image has no dimensions after waiting, skipping matting. Image src:', imageElement.src);
+            return;
+        }
+        
+        console.log('Extracting colors from image:', imgWidth, 'x', imgHeight, 'src:', imageElement.src.substring(0, 50));
+        const colors = await extractDominantColors(imageElement, 3);
+        
+        if (!colors || colors.length === 0) {
+            console.warn('No colors extracted, using fallback');
+            // Fallback to dark background
+            elements.mattingBackground.style.background = '#0a0a0a';
+            elements.mattingBackground.style.opacity = '1';
+            return;
+        }
+        
+        // Create gradient from dominant colors
+        // Use the colors to create a radial gradient that complements the image
+        const primaryColor = colors[0];
+        const secondaryColor = colors[colors.length > 1 ? 1 : colors[0]];
+        const tertiaryColor = colors[colors.length > 2 ? 2 : colors[0]];
+        
+        // Create a more vibrant radial gradient for matting effect
+        // Higher opacity to show colors better, with texture overlay
+        const gradient = `radial-gradient(ellipse at center, 
+            rgba(${primaryColor.r}, ${primaryColor.g}, ${primaryColor.b}, 0.6) 0%, 
+            rgba(${secondaryColor.r}, ${secondaryColor.g}, ${secondaryColor.b}, 0.5) 30%,
+            rgba(${tertiaryColor.r}, ${tertiaryColor.g}, ${tertiaryColor.b}, 0.4) 60%,
+            rgba(${Math.round(primaryColor.r * 0.3)}, ${Math.round(primaryColor.g * 0.3)}, ${Math.round(primaryColor.b * 0.3)}, 0.8) 100%)`;
+        
+        console.log('Applying matting gradient with colors:', 
+            `rgb(${primaryColor.r},${primaryColor.g},${primaryColor.b})`,
+            `rgb(${secondaryColor.r},${secondaryColor.g},${secondaryColor.b})`,
+            `rgb(${tertiaryColor.r},${tertiaryColor.g},${tertiaryColor.b})`);
+        
+        elements.mattingBackground.style.background = gradient;
+        elements.mattingBackground.style.opacity = '1';
+    } catch (error) {
+        console.error('Error applying matting background:', error);
+        // Fallback to dark background
+        if (elements.mattingBackground) {
+            elements.mattingBackground.style.background = '#0a0a0a';
+            elements.mattingBackground.style.opacity = '1';
+        }
+    }
 }
 
 // Slideshow controls - now server-side controlled

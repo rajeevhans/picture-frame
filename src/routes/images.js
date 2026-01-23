@@ -85,7 +85,7 @@ function createImageRoutes(db, slideshowEngine, ctx) {
                 return res.status(404).json({ error: 'No images available' });
             }
 
-            const preload = slideshowEngine.getPreloadImages(3);
+            const preload = slideshowEngine.getPreloadImages();
 
             res.json({
                 image,
@@ -110,7 +110,7 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             if (typeof image.then === 'function') {
                 return image.then((resolved) => {
                     if (!resolved) return res.status(404).json({ error: 'No images available' });
-                    const preload = slideshowEngine.getPreloadImages(3);
+                    const preload = slideshowEngine.getPreloadImages();
                     const settings = slideshowEngine.getSettings();
                     return res.json({ image: resolved, preload, settings });
                 }).catch((error) => {
@@ -121,7 +121,7 @@ function createImageRoutes(db, slideshowEngine, ctx) {
 
             res.json({
                 image,
-                preload: slideshowEngine.getPreloadImages(3),
+                preload: slideshowEngine.getPreloadImages(),
                 settings: slideshowEngine.getSettings()
             });
         } catch (error) {
@@ -141,7 +141,7 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             if (typeof image.then === 'function') {
                 return image.then((resolved) => {
                     if (!resolved) return res.status(404).json({ error: 'No images available' });
-                    const preload = slideshowEngine.getPreloadImages(3);
+                    const preload = slideshowEngine.getPreloadImages();
                     const settings = slideshowEngine.getSettings();
                     return res.json({ image: resolved, preload, settings });
                 }).catch((error) => {
@@ -152,7 +152,7 @@ function createImageRoutes(db, slideshowEngine, ctx) {
 
             res.json({
                 image,
-                preload: slideshowEngine.getPreloadImages(3),
+                preload: slideshowEngine.getPreloadImages(),
                 settings: slideshowEngine.getSettings()
             });
         } catch (error) {

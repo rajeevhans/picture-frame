@@ -58,7 +58,7 @@ function createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServer
                 if (updates.favoritesOnly !== undefined || updates.mode !== undefined || updates.order !== undefined) {
                     const image = slideshowEngine.getCurrentImage();
                     if (image) {
-                        const preload = slideshowEngine.getPreloadImages(3);
+                        const preload = slideshowEngine.getPreloadImages();
                         // Note: do not force isPlaying here; clients keep their current play state
                         broadcastUpdate('image', {
                             image,
