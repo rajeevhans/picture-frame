@@ -59,6 +59,30 @@ body.show-cursor {
     opacity: 1;
 }
 
+/* Deletion animation */
+.main-image.deleting {
+    animation: deleteAnimation 0.4s ease-in forwards;
+    z-index: 3; /* Ensure deleted image is on top during animation */
+}
+
+@keyframes deleteAnimation {
+    0% {
+        opacity: 1;
+        transform: scale(1);
+        filter: brightness(1);
+    }
+    50% {
+        opacity: 0.5;
+        transform: scale(0.95);
+        filter: brightness(0.7);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(0.8);
+        filter: brightness(0.3) blur(2px);
+    }
+}
+
 /* Loading indicator */
 .loading {
     position: absolute;
@@ -264,6 +288,29 @@ body.show-cursor {
 #favoriteBtn.favorite svg {
     fill: #ff4444;
     stroke: #ff4444;
+}
+
+.undo-btn {
+    background: rgba(76, 175, 80, 0.8) !important;
+    animation: pulse 1s ease-in-out infinite;
+}
+
+.undo-btn:hover {
+    background: rgba(76, 175, 80, 1) !important;
+    transform: scale(1.15);
+}
+
+.undo-btn.visible {
+    display: flex !important;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7);
+    }
+    50% {
+        box-shadow: 0 0 0 10px rgba(76, 175, 80, 0);
+    }
 }
 
 .image-counter {

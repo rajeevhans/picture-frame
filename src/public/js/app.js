@@ -8,7 +8,9 @@ const state = {
     controlsTimer: null,
     mouseMoveTimer: null,
     infoVisible: false,
-    eventSource: null
+    eventSource: null,
+    deleteTimeout: null,
+    pendingDeletion: null
 };
 
 // DOM elements
@@ -31,6 +33,7 @@ const elements = {
     playPauseBtn: document.getElementById('playPauseBtn'),
     favoriteBtn: document.getElementById('favoriteBtn'),
     deleteBtn: document.getElementById('deleteBtn'),
+    undoBtn: document.getElementById('undoBtn'),
     downloadBtn: document.getElementById('downloadBtn'),
     rotateLeftBtn: document.getElementById('rotateLeftBtn'),
     rotateRightBtn: document.getElementById('rotateRightBtn'),
@@ -208,6 +211,19 @@ async function loadCurrentImage() {
 // Note: loadCurrentImage is kept for initial load, but SSE will handle updates
 
 async function loadNextImage() {
+    // Cancel any pending deletion when navigating
+    if (state.deleteTimeout) {
+        clearTimeout(state.deleteTimeout);
+        state.deleteTimeout = null;
+        if (state.pendingDeletion) {
+            const { imageElement } = state.pendingDeletion;
+            imageElement.classList.remove('deleting');
+            elements.undoBtn.style.display = 'none';
+            elements.undoBtn.classList.remove('visible');
+            state.pendingDeletion = null;
+        }
+    }
+    
     try {
         // Server broadcasts the resulting image via SSE.
         // Avoid rendering twice (API response + SSE), which causes jittery transitions.
@@ -225,6 +241,19 @@ async function loadNextImage() {
 }
 
 async function loadPreviousImage() {
+    // Cancel any pending deletion when navigating
+    if (state.deleteTimeout) {
+        clearTimeout(state.deleteTimeout);
+        state.deleteTimeout = null;
+        if (state.pendingDeletion) {
+            const { imageElement } = state.pendingDeletion;
+            imageElement.classList.remove('deleting');
+            elements.undoBtn.style.display = 'none';
+            elements.undoBtn.classList.remove('visible');
+            state.pendingDeletion = null;
+        }
+    }
+    
     try {
         // Server broadcasts the resulting image via SSE.
         const data = await apiCall('/image/previous');
@@ -258,40 +287,100 @@ async function toggleFavorite() {
 async function deleteImage() {
     if (!state.currentImage) return;
     
-    // Store the deleted image ID to prevent transition issues
-    const deletedImageId = state.currentImage.id;
-    
-    // Immediately clear the current image to prevent transition bugs
-    // This ensures the new image (from SSE or API response) loads fresh without
-    // trying to transition from a deleted image that no longer exists
-    elements.mainImage.style.opacity = '0';
-    elements.nextImage.style.opacity = '0';
-    elements.mainImage.classList.remove('current', 'next');
-    elements.nextImage.classList.remove('current', 'next');
-    elements.mainImage.style.display = 'none';
-    elements.nextImage.style.display = 'none';
-    // Clear state so displayImage treats next image as fresh load
-    state.currentImage = null;
-    
-    try {
-        const data = await apiCall(`/image/${deletedImageId}`, {
-            method: 'DELETE'
-        });
-
-        // Server broadcasts the resulting image via SSE.
-        // Fallback: if SSE isn't connected, use response to advance immediately.
-        if (!state.eventSource || state.eventSource.readyState !== EventSource.OPEN) {
-            if (data.nextImage) {
-                displayImage(data.nextImage, []);
-            } else {
-                showNoImages();
-            }
-        }
-    } catch (error) {
-        console.error('Failed to delete image:', error);
-        // On error, ensure we show no images state
-        showNoImages();
+    // Cancel any pending deletion
+    if (state.deleteTimeout) {
+        clearTimeout(state.deleteTimeout);
+        state.deleteTimeout = null;
     }
+    
+    // Store the deleted image ID and reference
+    const deletedImageId = state.currentImage.id;
+    const deletedImage = state.currentImage;
+    
+    // Find which image element is currently showing
+    const currentImg = elements.mainImage.classList.contains('current') ? elements.mainImage : elements.nextImage;
+    
+    // Store pending deletion info
+    state.pendingDeletion = {
+        imageId: deletedImageId,
+        image: deletedImage,
+        imageElement: currentImg
+    };
+    
+    // Add deletion animation class
+    currentImg.classList.add('deleting');
+    
+    // Show undo button
+    elements.undoBtn.style.display = 'flex';
+    elements.undoBtn.classList.add('visible');
+    
+    // Start deletion countdown (5 seconds)
+    state.deleteTimeout = setTimeout(async () => {
+        // Hide undo button
+        elements.undoBtn.style.display = 'none';
+        elements.undoBtn.classList.remove('visible');
+        
+        // Hide the deleted image
+        currentImg.style.display = 'none';
+        currentImg.classList.remove('current', 'next', 'deleting');
+        
+        // Clear state
+        state.currentImage = null;
+        state.pendingDeletion = null;
+        state.deleteTimeout = null;
+        
+        try {
+            // Make delete request (server handles deletion in background)
+            const data = await apiCall(`/image/${deletedImageId}`, {
+                method: 'DELETE'
+            });
+
+            // Server broadcasts the resulting image via SSE.
+            // Fallback: if SSE isn't connected, use response to advance immediately.
+            if (!state.eventSource || state.eventSource.readyState !== EventSource.OPEN) {
+                if (data.nextImage) {
+                    displayImage(data.nextImage, []);
+                } else {
+                    showNoImages();
+                }
+            }
+        } catch (error) {
+            console.error('Failed to delete image:', error);
+            // On error, ensure we show no images state
+            showNoImages();
+        }
+    }, 5000); // 5 second delay
+}
+
+function undoDelete() {
+    if (!state.pendingDeletion || !state.deleteTimeout) return;
+    
+    // Cancel the deletion timeout
+    clearTimeout(state.deleteTimeout);
+    state.deleteTimeout = null;
+    
+    // Restore the image
+    const { imageElement, image } = state.pendingDeletion;
+    
+    // Remove deletion animation class
+    imageElement.classList.remove('deleting');
+    
+    // Restore current image state
+    state.currentImage = image;
+    
+    // Clear pending deletion
+    state.pendingDeletion = null;
+    
+    // Hide undo button
+    elements.undoBtn.style.display = 'none';
+    elements.undoBtn.classList.remove('visible');
+    
+    // Update UI
+    updateFavoriteButton();
+    updateInfoOverlay(image);
+    updateLocationOverlay(image);
+    
+    console.log('Delete operation cancelled');
 }
 
 function downloadImage() {
@@ -398,6 +487,18 @@ function displayImage(image, preloadImages = []) {
     if (!image) {
         showNoImages();
         return;
+    }
+    
+    // Cancel any pending deletion when a new image is displayed (e.g., via SSE)
+    if (state.deleteTimeout && state.pendingDeletion && state.pendingDeletion.imageId !== image.id) {
+        clearTimeout(state.deleteTimeout);
+        state.deleteTimeout = null;
+        if (state.pendingDeletion.imageElement) {
+            state.pendingDeletion.imageElement.classList.remove('deleting');
+        }
+        elements.undoBtn.style.display = 'none';
+        elements.undoBtn.classList.remove('visible');
+        state.pendingDeletion = null;
     }
     
     state.currentImage = image;
@@ -857,6 +958,11 @@ function setupEventListeners() {
         showControls();
     });
     
+    elements.undoBtn.addEventListener('click', () => {
+        undoDelete();
+        showControls();
+    });
+    
     elements.downloadBtn.addEventListener('click', () => {
         downloadImage();
         showControls();
@@ -917,6 +1023,21 @@ function setupEventListeners() {
             case 'D':
                 deleteImage();
                 showControls();
+                break;
+            case 'u':
+            case 'U':
+                if (state.deleteTimeout) {
+                    undoDelete();
+                    showControls();
+                }
+                break;
+            case 'z':
+            case 'Z':
+                if ((e.ctrlKey || e.metaKey) && state.deleteTimeout) {
+                    e.preventDefault();
+                    undoDelete();
+                    showControls();
+                }
                 break;
             case '[':
                 rotateImage('left');

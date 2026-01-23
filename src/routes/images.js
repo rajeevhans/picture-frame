@@ -293,59 +293,71 @@ function createImageRoutes(db, slideshowEngine, ctx) {
                 return res.status(404).json({ error: 'Image not found' });
             }
             
-            // Create deleted folder if it doesn't exist
-            const deletedDir = path.resolve('./data/deleted');
-            if (!fs.existsSync(deletedDir)) {
-                fs.mkdirSync(deletedDir, { recursive: true });
-            }
-            
-            // Get source and destination paths
-            const sourcePath = path.resolve(image.filepath);
-            const filename = path.basename(image.filepath);
-            const destPath = path.join(deletedDir, filename);
-            
-            // Handle filename conflicts by adding timestamp
-            let finalDestPath = destPath;
-            if (fs.existsSync(finalDestPath)) {
-                const timestamp = Date.now();
-                const ext = path.extname(filename);
-                const baseName = path.basename(filename, ext);
-                finalDestPath = path.join(deletedDir, `${baseName}_${timestamp}${ext}`);
-            }
-            
-            // Move the file
-            if (fs.existsSync(sourcePath)) {
-                fs.renameSync(sourcePath, finalDestPath);
-                console.log(`Moved ${image.filepath} to ${finalDestPath}`);
-            } else {
-                console.log(`File not found: ${sourcePath}, removing from database only`);
-            }
-            
-            // Remove from database
-            db.hardDelete(imageId);
-
-            // Refresh slideshow
+            // Immediately get next image and return response (don't wait for deletion)
             slideshowEngine.refreshImageList();
-
-            // Move to next image
             const nextImage = advanceSlideshow ? await advanceSlideshow('next') : slideshowEngine.getNextImage();
-            if (!nextImage) {
-                return res.json({
-                    success: true,
-                    nextImage: null,
-                    movedTo: finalDestPath
-                });
-            }
-
-            // If we didn't go through server controller, still broadcast to keep clients in sync
-            if (!advanceSlideshow && broadcastCurrentImage) {
+            
+            // Send response immediately with next image
+            const response = {
+                success: true,
+                nextImage: nextImage || null
+            };
+            
+            // Broadcast next image to all clients
+            if (nextImage && broadcastCurrentImage) {
                 broadcastCurrentImage(nextImage);
             }
-
-            res.json({
-                success: true,
-                nextImage,
-                movedTo: finalDestPath
+            
+            res.json(response);
+            
+            // Handle deletion in background (don't await)
+            setImmediate(() => {
+                (async () => {
+                    try {
+                        // Create deleted folder if it doesn't exist
+                        const deletedDir = path.resolve('./data/deleted');
+                        if (!fs.existsSync(deletedDir)) {
+                            fs.mkdirSync(deletedDir, { recursive: true });
+                        }
+                        
+                        // Get source and destination paths
+                        const sourcePath = path.resolve(image.filepath);
+                        const filename = path.basename(image.filepath);
+                        const destPath = path.join(deletedDir, filename);
+                        
+                        // Handle filename conflicts by adding timestamp
+                        let finalDestPath = destPath;
+                        if (fs.existsSync(finalDestPath)) {
+                            const timestamp = Date.now();
+                            const ext = path.extname(filename);
+                            const baseName = path.basename(filename, ext);
+                            finalDestPath = path.join(deletedDir, `${baseName}_${timestamp}${ext}`);
+                        }
+                        
+                        // Move the file asynchronously
+                        if (fs.existsSync(sourcePath)) {
+                            await fs.promises.rename(sourcePath, finalDestPath);
+                            console.log(`Moved ${image.filepath} to ${finalDestPath}`);
+                        } else {
+                            console.log(`File not found: ${sourcePath}, removing from database only`);
+                        }
+                        
+                        // Remove from database
+                        db.hardDelete(imageId);
+                        
+                        // Refresh slideshow list after deletion
+                        slideshowEngine.refreshImageList();
+                    } catch (error) {
+                        console.error('Error in background deletion:', error);
+                        // Still try to remove from database even if file move failed
+                        try {
+                            db.hardDelete(imageId);
+                            slideshowEngine.refreshImageList();
+                        } catch (dbError) {
+                            console.error('Error removing from database:', dbError);
+                        }
+                    }
+                })();
             });
         } catch (error) {
             console.error('Error deleting image:', error);
