@@ -532,7 +532,7 @@ function displayImage(image, preloadImages = []) {
         elements.nextImage.classList.remove('current', 'next');
         elements.nextImage.style.zIndex = '';
         
-        elements.mainImage.onload = async () => {
+        elements.mainImage.onload = () => {
             elements.mainImage.style.opacity = '1';
             updateInfoOverlay(image);
             updateLocationOverlay(image);
@@ -540,10 +540,12 @@ function displayImage(image, preloadImages = []) {
             elements.loadingIndicator.style.display = 'none';
             elements.noImagesMessage.style.display = 'none';
             
-            // Apply matting background based on image colors
-            // Small delay to ensure image is fully rendered
-            setTimeout(async () => {
-                await applyMattingBackground(elements.mainImage);
+            // Apply matting background based on image colors (non-blocking)
+            // Don't await - let it run in background
+            setTimeout(() => {
+                applyMattingBackground(elements.mainImage).catch(err => {
+                    console.error('Error applying matting background:', err);
+                });
             }, 100);
         };
         
@@ -560,9 +562,11 @@ function displayImage(image, preloadImages = []) {
         if (nextImg.src === imageUrl && nextImg.complete) {
             // Image already loaded, swap immediately
             swapImages(currentImg, nextImg, image);
-            // Apply matting background for the already-loaded image
-            setTimeout(async () => {
-                await applyMattingBackground(nextImg);
+            // Apply matting background for the already-loaded image (non-blocking)
+            setTimeout(() => {
+                applyMattingBackground(nextImg).catch(err => {
+                    console.error('Error applying matting background:', err);
+                });
             }, 100);
         } else {
             // Load new image - set up as next image before loading
@@ -575,13 +579,14 @@ function displayImage(image, preloadImages = []) {
             nextImg.alt = image.filename;
             
             // Wait for image to load before crossfading
-            nextImg.onload = async () => {
+            nextImg.onload = () => {
                 swapImages(currentImg, nextImg, image);
                 
-                // Apply matting background for the new image
-                // Small delay to ensure image is fully rendered
-                setTimeout(async () => {
-                    await applyMattingBackground(nextImg);
+                // Apply matting background for the new image (non-blocking)
+                setTimeout(() => {
+                    applyMattingBackground(nextImg).catch(err => {
+                        console.error('Error applying matting background:', err);
+                    });
                 }, 100);
             };
             
@@ -646,7 +651,8 @@ function showNoImages() {
     
     // Reset matting background to default
     elements.mattingBackground.style.opacity = '0';
-    elements.mattingBackground.style.background = '';
+    elements.mattingBackground.style.backgroundColor = '';
+    elements.mattingBackground.style.backgroundImage = '';
 }
 
 function updateInfoOverlay(image) {
@@ -1173,38 +1179,75 @@ async function applyMattingBackground(imageElement) {
         
         if (!colors || colors.length === 0) {
             console.warn('No colors extracted, using fallback');
-            // Fallback to dark background
-            elements.mattingBackground.style.background = '#0a0a0a';
+            // Fallback to visible matting background with texture
+            elements.mattingBackground.style.backgroundColor = '#2a2a2a';
+            // Keep texture layers from CSS
+            elements.mattingBackground.style.backgroundImage = '';
             elements.mattingBackground.style.opacity = '1';
             return;
         }
         
         // Create gradient from dominant colors
-        // Use the colors to create a radial gradient that complements the image
+        // Use the colors to create gradients that complement the image
         const primaryColor = colors[0];
         const secondaryColor = colors[colors.length > 1 ? 1 : colors[0]];
         const tertiaryColor = colors[colors.length > 2 ? 2 : colors[0]];
         
-        // Create a more vibrant radial gradient for matting effect
-        // Higher opacity to show colors better, with texture overlay
-        const gradient = `radial-gradient(ellipse at center, 
-            rgba(${primaryColor.r}, ${primaryColor.g}, ${primaryColor.b}, 0.6) 0%, 
-            rgba(${secondaryColor.r}, ${secondaryColor.g}, ${secondaryColor.b}, 0.5) 30%,
-            rgba(${tertiaryColor.r}, ${tertiaryColor.g}, ${tertiaryColor.b}, 0.4) 60%,
-            rgba(${Math.round(primaryColor.r * 0.3)}, ${Math.round(primaryColor.g * 0.3)}, ${Math.round(primaryColor.b * 0.3)}, 0.8) 100%)`;
+        // Set base background color first
+        const baseR = Math.max(30, Math.round(primaryColor.r * 0.7));
+        const baseG = Math.max(30, Math.round(primaryColor.g * 0.7));
+        const baseB = Math.max(30, Math.round(primaryColor.b * 0.7));
+        elements.mattingBackground.style.backgroundColor = `rgb(${baseR}, ${baseG}, ${baseB})`;
+        
+        // Create color gradients that will layer on top of the CSS texture
+        // Use linear gradients (not radial) for paper-like appearance
+        const colorGradient1 = `linear-gradient(135deg, 
+            rgba(${primaryColor.r}, ${primaryColor.g}, ${primaryColor.b}, 0.7) 0%, 
+            rgba(${secondaryColor.r}, ${secondaryColor.g}, ${secondaryColor.b}, 0.65) 30%,
+            rgba(${primaryColor.r}, ${primaryColor.g}, ${primaryColor.b}, 0.6) 60%,
+            rgba(${tertiaryColor.r}, ${tertiaryColor.g}, ${tertiaryColor.b}, 0.55) 100%)`;
+        
+        const colorGradient2 = `linear-gradient(45deg, 
+            rgba(${secondaryColor.r}, ${secondaryColor.g}, ${secondaryColor.b}, 0.4) 0%, 
+            rgba(${secondaryColor.r}, ${secondaryColor.g}, ${secondaryColor.b}, 0.25) 40%,
+            rgba(${tertiaryColor.r}, ${tertiaryColor.g}, ${tertiaryColor.b}, 0.3) 60%,
+            rgba(${tertiaryColor.r}, ${tertiaryColor.g}, ${tertiaryColor.b}, 0.2) 100%)`;
+        
+        // Build texture layers string (matching CSS texture layers)
+        const textureLayers = `
+            repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.04) 0px, transparent 0.5px, transparent 1px, rgba(0, 0, 0, 0.03) 1.5px, transparent 2px, rgba(255, 255, 255, 0.02) 2.5px, transparent 3px, rgba(0, 0, 0, 0.04) 3.5px, transparent 4px),
+            repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.04) 0px, transparent 0.5px, transparent 1px, rgba(0, 0, 0, 0.03) 1.5px, transparent 2px, rgba(255, 255, 255, 0.02) 2.5px, transparent 3px, rgba(0, 0, 0, 0.04) 3.5px, transparent 4px),
+            repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.05) 0px, transparent 1px, transparent 3px, rgba(0, 0, 0, 0.04) 4px, transparent 5px, rgba(255, 255, 255, 0.025) 6px, transparent 7px, rgba(0, 0, 0, 0.05) 8px, transparent 9px),
+            repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.05) 0px, transparent 1px, transparent 3px, rgba(0, 0, 0, 0.04) 4px, transparent 5px, rgba(255, 255, 255, 0.025) 6px, transparent 7px, rgba(0, 0, 0, 0.05) 8px, transparent 9px),
+            repeating-linear-gradient(12deg, rgba(0, 0, 0, 0.03) 0px, transparent 2px, transparent 4px, rgba(0, 0, 0, 0.02) 5px, transparent 7px, rgba(255, 255, 255, 0.015) 8px, transparent 10px),
+            repeating-linear-gradient(78deg, rgba(0, 0, 0, 0.03) 0px, transparent 2px, transparent 4px, rgba(0, 0, 0, 0.02) 5px, transparent 7px, rgba(255, 255, 255, 0.015) 8px, transparent 10px),
+            linear-gradient(135deg, rgba(0, 0, 0, 0.03) 0%, transparent 20%, rgba(255, 255, 255, 0.02) 40%, transparent 60%, rgba(0, 0, 0, 0.025) 80%, transparent 100%),
+            linear-gradient(45deg, rgba(0, 0, 0, 0.025) 0%, transparent 30%, rgba(255, 255, 255, 0.015) 50%, transparent 70%, rgba(0, 0, 0, 0.03) 100%)`;
+        
+        // Layer color gradients on top of texture layers
+        // Color gradients come first (top layer), then texture layers
+        elements.mattingBackground.style.backgroundImage = 
+            `${colorGradient1}, ${colorGradient2}${textureLayers}`;
+        
+        // Preserve background-size and background-position from CSS
+        elements.mattingBackground.style.backgroundSize = 
+            '100% 100%, 100% 100%, 100% 4px, 4px 100%, 16px 16px, 16px 16px, 24px 24px, 24px 24px, 150% 150%, 180% 180%';
+        elements.mattingBackground.style.backgroundPosition = 
+            '0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0';
         
         console.log('Applying matting gradient with colors:', 
             `rgb(${primaryColor.r},${primaryColor.g},${primaryColor.b})`,
             `rgb(${secondaryColor.r},${secondaryColor.g},${secondaryColor.b})`,
             `rgb(${tertiaryColor.r},${tertiaryColor.g},${tertiaryColor.b})`);
         
-        elements.mattingBackground.style.background = gradient;
         elements.mattingBackground.style.opacity = '1';
     } catch (error) {
         console.error('Error applying matting background:', error);
-        // Fallback to dark background
+        // Fallback to visible matting background with texture
         if (elements.mattingBackground) {
-            elements.mattingBackground.style.background = '#0a0a0a';
+            elements.mattingBackground.style.backgroundColor = '#2a2a2a';
+            // Keep texture layers from CSS
+            elements.mattingBackground.style.backgroundImage = '';
             elements.mattingBackground.style.opacity = '1';
         }
     }
