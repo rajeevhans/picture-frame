@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const { loadConfig } = require('./config');
 const DatabaseManager = require('./database/db');
 const DirectoryScanner = require('./indexer/scanner');
 const FileWatcher = require('./indexer/watcher');
@@ -9,9 +10,8 @@ const GeolocationService = require('./services/geolocation');
 const createImageRoutes = require('./routes/images');
 const createSettingsRoutes = require('./routes/settings');
 
-// Load configuration
-const configPath = path.join(__dirname, '../config.json');
-const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+// Load configuration (~/picframe-config.json or config.json)
+const config = loadConfig();
 
 // Initialize Express app
 const app = express();

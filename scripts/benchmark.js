@@ -16,9 +16,9 @@
 const fs = require('fs');
 const path = require('path');
 
-// Load config
-const configPath = path.join(__dirname, '../config.json');
-const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+// Load config (~/picframe-config.json or config.json)
+const { loadConfig } = require('../src/config');
+const config = loadConfig();
 
 const Database = require('better-sqlite3');
 const ExifReader = require('exifreader');
