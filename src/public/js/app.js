@@ -1199,8 +1199,7 @@ async function applyMattingBackground(imageElement) {
         const baseB = Math.max(30, Math.round(primaryColor.b * 0.7));
         elements.mattingBackground.style.backgroundColor = `rgb(${baseR}, ${baseG}, ${baseB})`;
         
-        // Create color gradients that will layer on top of the CSS texture
-        // Use linear gradients (not radial) for paper-like appearance
+        // Create color gradients + single pre-rendered texture (3 layers vs 10 for Pi performance)
         const colorGradient1 = `linear-gradient(135deg, 
             rgba(${primaryColor.r}, ${primaryColor.g}, ${primaryColor.b}, 0.7) 0%, 
             rgba(${secondaryColor.r}, ${secondaryColor.g}, ${secondaryColor.b}, 0.65) 30%,
@@ -1213,27 +1212,11 @@ async function applyMattingBackground(imageElement) {
             rgba(${tertiaryColor.r}, ${tertiaryColor.g}, ${tertiaryColor.b}, 0.3) 60%,
             rgba(${tertiaryColor.r}, ${tertiaryColor.g}, ${tertiaryColor.b}, 0.2) 100%)`;
         
-        // Build texture layers string (matching CSS texture layers)
-        const textureLayers = `
-            repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.04) 0px, transparent 0.5px, transparent 1px, rgba(0, 0, 0, 0.03) 1.5px, transparent 2px, rgba(255, 255, 255, 0.02) 2.5px, transparent 3px, rgba(0, 0, 0, 0.04) 3.5px, transparent 4px),
-            repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.04) 0px, transparent 0.5px, transparent 1px, rgba(0, 0, 0, 0.03) 1.5px, transparent 2px, rgba(255, 255, 255, 0.02) 2.5px, transparent 3px, rgba(0, 0, 0, 0.04) 3.5px, transparent 4px),
-            repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.05) 0px, transparent 1px, transparent 3px, rgba(0, 0, 0, 0.04) 4px, transparent 5px, rgba(255, 255, 255, 0.025) 6px, transparent 7px, rgba(0, 0, 0, 0.05) 8px, transparent 9px),
-            repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.05) 0px, transparent 1px, transparent 3px, rgba(0, 0, 0, 0.04) 4px, transparent 5px, rgba(255, 255, 255, 0.025) 6px, transparent 7px, rgba(0, 0, 0, 0.05) 8px, transparent 9px),
-            repeating-linear-gradient(12deg, rgba(0, 0, 0, 0.03) 0px, transparent 2px, transparent 4px, rgba(0, 0, 0, 0.02) 5px, transparent 7px, rgba(255, 255, 255, 0.015) 8px, transparent 10px),
-            repeating-linear-gradient(78deg, rgba(0, 0, 0, 0.03) 0px, transparent 2px, transparent 4px, rgba(0, 0, 0, 0.02) 5px, transparent 7px, rgba(255, 255, 255, 0.015) 8px, transparent 10px),
-            linear-gradient(135deg, rgba(0, 0, 0, 0.03) 0%, transparent 20%, rgba(255, 255, 255, 0.02) 40%, transparent 60%, rgba(0, 0, 0, 0.025) 80%, transparent 100%),
-            linear-gradient(45deg, rgba(0, 0, 0, 0.025) 0%, transparent 30%, rgba(255, 255, 255, 0.015) 50%, transparent 70%, rgba(0, 0, 0, 0.03) 100%)`;
-        
-        // Layer color gradients on top of texture layers
-        // Color gradients come first (top layer), then texture layers
         elements.mattingBackground.style.backgroundImage = 
-            `${colorGradient1}, ${colorGradient2}${textureLayers}`;
-        
-        // Preserve background-size and background-position from CSS
-        elements.mattingBackground.style.backgroundSize = 
-            '100% 100%, 100% 100%, 100% 4px, 4px 100%, 16px 16px, 16px 16px, 24px 24px, 24px 24px, 150% 150%, 180% 180%';
-        elements.mattingBackground.style.backgroundPosition = 
-            '0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0';
+            `${colorGradient1}, ${colorGradient2}, url('/textures/paper.svg')`;
+        elements.mattingBackground.style.backgroundSize = '100% 100%, 100% 100%, 64px 64px';
+        elements.mattingBackground.style.backgroundRepeat = 'no-repeat, no-repeat, repeat';
+        elements.mattingBackground.style.backgroundPosition = '0 0, 0 0, 0 0';
         
         console.log('Applying matting gradient with colors:', 
             `rgb(${primaryColor.r},${primaryColor.g},${primaryColor.b})`,

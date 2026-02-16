@@ -8,6 +8,7 @@
     "index": "node src/server.js --index",
     "dev": "node src/server.js --dev",
     "cleanup": "node src/server.js --index",
+    "benchmark": "node scripts/benchmark.js",
     "electron": "electron electron/main.js",
     "electron:external": "ELECTRON_USE_EXTERNAL_SERVER=1 electron electron/main.js"
   },
