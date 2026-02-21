@@ -25,8 +25,12 @@ class FileWatcher {
         // Use polling mode if configured or on systems with low inotify limits
         const usePolling = this.config.watcher?.usePolling || false;
         
+        const ignored = [
+            /(^|[\/\\])\../,  // ignore dotfiles
+            '**/resized/**'   // ignore resized output folder
+        ];
         this.watcher = chokidar.watch(directoryPath, {
-            ignored: /(^|[\/\\])\../, // ignore dotfiles
+            ignored,
             persistent: true,
             ignoreInitial: true, // Don't emit events for initial scan
             usePolling: usePolling, // Use polling instead of native watchers

@@ -1,5 +1,5 @@
 {
-  "photoDirectory": "/Users/rhans/Downloads/images/",
+  "photoDirectory": "/Volumes/1tb/all-pics/",
   "databasePath": "./data/pictureframe.db",
   "serverPort": 3000,
   "slideshow": {
@@ -15,6 +15,11 @@
   },
   "watcher": {
     "usePolling": false
+  },
+  "resize": {
+    "maxWidth": 3840,
+    "maxHeight": 2160,
+    "runOnStartup": true
   }
 }
 

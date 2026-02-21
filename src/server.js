@@ -375,6 +375,23 @@ async function startServer() {
         if (!forceIndex) {
             startGeolocationLookup();
         }
+
+        // Run 4K resize in background when Electron app starts (or when config says so)
+        const runResizeOnStartup = config.resize?.runOnStartup ?? (process.env.ELECTRON_APP === '1');
+        if (!forceIndex && runResizeOnStartup) {
+            const { runResize } = require('../scripts/resizeTo4k');
+            setImmediate(async () => {
+                try {
+                    const { processed, errors } = await runResize(db, config);
+                    if (processed > 0 || errors > 0) {
+                        console.log(`4K resize complete: ${processed} resized, ${errors} errors`);
+                        slideshowEngine.refreshImageList();
+                    }
+                } catch (err) {
+                    console.error('4K resize failed:', err.message);
+                }
+            });
+        }
     });
     
     // Background geolocation lookup

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const MetadataExtractor = require('./metadata');
+const { resizeImage, shouldExcludeFromScan } = require('./resizePipeline');
 
 class DirectoryScanner {
     constructor(db, config) {
@@ -75,6 +76,7 @@ class DirectoryScanner {
     }
 
     collectImageFiles(dir, fileList = []) {
+        const photoDir = path.resolve(this.config.photoDirectory || dir);
         const entries = fs.readdirSync(dir, { withFileTypes: true });
 
         for (const entry of entries) {
@@ -82,6 +84,11 @@ class DirectoryScanner {
 
             // Skip hidden files and directories
             if (entry.name.startsWith('.')) {
+                continue;
+            }
+
+            // Exclude resized/ folder - only scan originals
+            if (entry.isDirectory() && shouldExcludeFromScan(fullPath, photoDir)) {
                 continue;
             }
 
@@ -107,6 +114,7 @@ class DirectoryScanner {
 
     async processBatch(files, forceReindex) {
         const batch = [];
+        const originalsToDelete = [];
 
         for (const filePath of files) {
             try {
@@ -122,9 +130,24 @@ class DirectoryScanner {
                     }
                 }
 
-                // Extract metadata
+                // Extract metadata from original
                 const metadata = await this.metadataExtractor.extractMetadata(filePath);
-                batch.push(metadata);
+
+                // Resize to 4K, output to resized/{year}/, get new path
+                const resized = await resizeImage(filePath, metadata, this.config);
+
+                // Build metadata with resized path
+                const batchItem = {
+                    ...metadata,
+                    filepath: resized.outputPath,
+                    filename: resized.filename,
+                    fileModified: resized.fileModified
+                };
+                if (resized.width != null) batchItem.width = resized.width;
+                if (resized.height != null) batchItem.height = resized.height;
+
+                batch.push(batchItem);
+                originalsToDelete.push(filePath);
                 this.stats.processed++;
 
             } catch (error) {
@@ -137,12 +160,27 @@ class DirectoryScanner {
         if (batch.length > 0) {
             try {
                 this.db.insertImagesBatch(batch);
+                // Delete originals only after successful insert
+                for (const originalPath of originalsToDelete) {
+                    try {
+                        if (fs.existsSync(originalPath)) {
+                            fs.unlinkSync(originalPath);
+                        }
+                    } catch (delErr) {
+                        console.error(`Failed to delete original ${originalPath}:`, delErr.message);
+                    }
+                }
             } catch (error) {
                 console.error('Error inserting batch:', error.message);
                 // Try inserting one by one as fallback
-                for (const item of batch) {
+                for (let i = 0; i < batch.length; i++) {
+                    const item = batch[i];
+                    const originalPath = originalsToDelete[i];
                     try {
                         this.db.insertImage(item);
+                        if (originalPath && fs.existsSync(originalPath)) {
+                            fs.unlinkSync(originalPath);
+                        }
                     } catch (err) {
                         console.error(`Error inserting ${item.filepath}:`, err.message);
                         this.stats.errors++;
@@ -158,9 +196,29 @@ class DirectoryScanner {
                 return false;
             }
 
+            // Skip if already under resized/
+            const photoDir = path.resolve(this.config.photoDirectory || path.dirname(filePath));
+            if (shouldExcludeFromScan(path.dirname(filePath), photoDir)) {
+                return false;
+            }
+
             const metadata = await this.metadataExtractor.extractMetadata(filePath);
-            this.db.insertImage(metadata);
-            console.log(`Indexed: ${filePath}`);
+            const resized = await resizeImage(filePath, metadata, this.config);
+
+            const batchItem = {
+                ...metadata,
+                filepath: resized.outputPath,
+                filename: resized.filename,
+                fileModified: resized.fileModified
+            };
+            if (resized.width != null) batchItem.width = resized.width;
+            if (resized.height != null) batchItem.height = resized.height;
+
+            this.db.insertImage(batchItem);
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+            }
+            console.log(`Indexed (resized): ${resized.outputPath}`);
             return true;
         } catch (error) {
             console.error(`Error indexing ${filePath}:`, error.message);

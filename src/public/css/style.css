@@ -481,6 +481,28 @@ body.show-cursor {
     background: #da190b;
 }
 
+/* System section */
+.settings-group.system {
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 20px;
+    margin-top: 20px;
+}
+
+.settings-group.system h3 {
+    color: #aaa;
+    margin-bottom: 10px;
+}
+
+.system-text {
+    color: #aaa;
+    font-size: 14px;
+    margin-bottom: 15px;
+}
+
+.settings-group.system .btn {
+    width: 100%;
+}
+
 /* Danger zone styling */
 .danger-zone {
     border-top: 2px solid rgba(244, 67, 54, 0.3);

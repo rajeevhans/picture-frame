@@ -48,6 +48,7 @@ const elements = {
     saveSettingsBtn: document.getElementById('saveSettingsBtn'),
     cancelSettingsBtn: document.getElementById('cancelSettingsBtn'),
     resetDatabaseBtn: document.getElementById('resetDatabaseBtn'),
+    restartBtn: document.getElementById('restartBtn'),
     
     // Info
     infoFilename: document.getElementById('infoFilename'),
@@ -448,6 +449,29 @@ async function resetDatabase() {
         alert('Error: Failed to reset database. Check console for details.');
         elements.resetDatabaseBtn.disabled = false;
         elements.resetDatabaseBtn.textContent = 'Reset Database';
+    }
+}
+
+async function restartPhotoFrame() {
+    if (!confirm('Restart the photo frame? The slideshow will briefly disconnect and reconnect.')) {
+        return;
+    }
+    try {
+        elements.restartBtn.disabled = true;
+        elements.restartBtn.textContent = 'Restarting...';
+        await apiCall('/settings/restart', { method: 'POST' });
+        // Server will restart; show message while waiting for reconnect
+        elements.restartBtn.textContent = 'Restarting...';
+        // SSE will reconnect when server comes back; page may need manual refresh if restart fails
+        setTimeout(() => {
+            elements.restartBtn.disabled = false;
+            elements.restartBtn.textContent = 'Restart Photo Frame';
+        }, 10000); // Re-enable after 10s in case restart failed
+    } catch (error) {
+        console.error('Failed to restart:', error);
+        elements.restartBtn.disabled = false;
+        elements.restartBtn.textContent = 'Restart Photo Frame';
+        alert('Failed to restart. The server may have restarted—try refreshing the page.');
     }
 }
 
@@ -1410,6 +1434,7 @@ function setupEventListeners() {
     elements.saveSettingsBtn.addEventListener('click', saveSettings);
     elements.cancelSettingsBtn.addEventListener('click', closeSettings);
     elements.resetDatabaseBtn.addEventListener('click', resetDatabase);
+    elements.restartBtn.addEventListener('click', restartPhotoFrame);
     
     // Mouse movement - use debounced handler
     document.addEventListener('mousemove', handleMouseMove);

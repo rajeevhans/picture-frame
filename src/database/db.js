@@ -194,6 +194,23 @@ class DatabaseManager {
         return stmt.run(fileModified, Date.now(), id);
     }
 
+    updateFilePath(id, filepath, filename, fileModified) {
+        const stmt = this.db.prepare(`
+            UPDATE images SET filepath = ?, filename = ?, file_modified = ?, updated_at = ? WHERE id = ?
+        `);
+        return stmt.run(filepath, filename, fileModified ?? 0, Date.now(), id);
+    }
+
+    getImagesNotResized(photoDirectory) {
+        const stmt = this.db.prepare('SELECT * FROM images WHERE is_deleted = 0');
+        const all = stmt.all();
+        const resizedDir = path.join(path.resolve(photoDirectory), 'resized');
+        return all.filter(img => {
+            const full = path.resolve(img.filepath);
+            return !full.startsWith(resizedDir + path.sep) && full !== resizedDir;
+        });
+    }
+
     deleteImageByPath(filepath) {
         const stmt = this.db.prepare('DELETE FROM images WHERE filepath = ?');
         const result = stmt.run(filepath);

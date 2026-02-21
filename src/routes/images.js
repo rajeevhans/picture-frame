@@ -314,8 +314,8 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             setImmediate(() => {
                 (async () => {
                     try {
-                        // Create deleted folder if it doesn't exist
-                        const deletedDir = path.resolve('./data/deleted');
+                        // Create deleted folder if it doesn't exist (use project-relative path)
+                        const deletedDir = path.resolve(__dirname, '..', '..', 'data', 'deleted');
                         if (!fs.existsSync(deletedDir)) {
                             fs.mkdirSync(deletedDir, { recursive: true });
                         }
@@ -335,8 +335,19 @@ function createImageRoutes(db, slideshowEngine, ctx) {
                         }
                         
                         // Move the file asynchronously
+                        // Use copy+unlink for cross-filesystem moves (e.g. external drive -> project data)
                         if (fs.existsSync(sourcePath)) {
-                            await fs.promises.rename(sourcePath, finalDestPath);
+                            try {
+                                await fs.promises.rename(sourcePath, finalDestPath);
+                            } catch (renameErr) {
+                                if (renameErr.code === 'EXDEV') {
+                                    // Cross-filesystem: copy then delete
+                                    await fs.promises.copyFile(sourcePath, finalDestPath);
+                                    await fs.promises.unlink(sourcePath);
+                                } else {
+                                    throw renameErr;
+                                }
+                            }
                             console.log(`Moved ${image.filepath} to ${finalDestPath}`);
                         } else {
                             console.log(`File not found: ${sourcePath}, removing from database only`);

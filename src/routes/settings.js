@@ -1,4 +1,6 @@
 const express = require('express');
+const { spawn } = require('child_process');
+const path = require('path');
 const router = express.Router();
 
 function createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServerSlideshowInterval) {
@@ -92,6 +94,29 @@ function createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServer
         } catch (error) {
             console.error('Error getting stats:', error);
             res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    // Restart the photo frame process
+    router.post('/restart', (req, res) => {
+        try {
+            res.json({ success: true, message: 'Restarting...' });
+
+            // Delay restart to allow response to be sent
+            setTimeout(() => {
+                console.log('Restart requested, spawning replacement process...');
+                const serverPath = path.resolve(__dirname, '..', 'server.js');
+                const child = spawn(process.argv[0], [serverPath, ...process.argv.slice(2)], {
+                    stdio: 'inherit',
+                    detached: true,
+                    cwd: path.resolve(__dirname, '..', '..')
+                });
+                child.unref();
+                process.exit(0);
+            }, 500);
+        } catch (error) {
+            console.error('Error restarting:', error);
+            res.status(500).json({ error: 'Failed to restart' });
         }
     });
 
