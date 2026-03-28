@@ -169,20 +169,25 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             const image = db.getImageById(imageId);
 
             if (!image) {
-                return res.status(404).json({ error: 'Image not found' });
+                return res.status(404).json({ error: 'Image not found', missing: true });
             }
 
             // Check if nocache parameter is present (used after rotation)
             const nocache = req.query.nocache === '1';
-            
+
             // Resolve to absolute path
             const absolutePath = path.resolve(image.filepath);
-            
+
             // Check if file exists (async to avoid blocking)
             try {
                 await fs.promises.access(absolutePath, fs.constants.F_OK);
             } catch (accessError) {
-                return res.status(404).json({ error: 'Image file not found' });
+                // File gone from disk — soft-delete so it's excluded going forward
+                logger.debug('Marking missing file as deleted', { id: imageId, filepath: image.filepath });
+                console.log(`File missing, marking as deleted: ${image.filepath}`);
+                db.updateImage(imageId, { isDeleted: 1 });
+                slideshowEngine.refreshImageList();
+                return res.status(404).json({ error: 'Image file not found', missing: true });
             }
             
             // Check if file is HEIF/HEIC format

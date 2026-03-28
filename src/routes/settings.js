@@ -29,8 +29,8 @@ function createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServer
             }
 
             if (req.body.order !== undefined) {
-                if (!['date', 'filename', 'thisday'].includes(req.body.order)) {
-                    return res.status(400).json({ error: 'Invalid order. Must be date, filename, or thisday' });
+                if (!['date', 'filename', 'random', 'thisday'].includes(req.body.order)) {
+                    return res.status(400).json({ error: 'Invalid order. Must be date, filename, random, or thisday' });
                 }
                 updates.order = req.body.order;
             }

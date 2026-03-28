@@ -65,10 +65,10 @@ class SlideshowEngine {
         if (this.settings.order === 'thisday') {
             options.thisDay = true;
             options.orderBy = 'thisday';
+        } else if (this.settings.order === 'random' || this.settings.mode === 'random') {
+            options.orderBy = 'random';
         } else if (this.settings.mode === 'sequential') {
             options.orderBy = this.settings.order;
-        } else if (this.settings.mode === 'random') {
-            options.orderBy = 'random';
         } else if (this.settings.mode === 'smart') {
             // For smart mode, we'll get all images and apply weighting
             options.orderBy = this.settings.order;

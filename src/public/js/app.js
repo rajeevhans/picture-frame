@@ -565,6 +565,7 @@ function displayImage(image, preloadImages = []) {
         elements.nextImage.style.zIndex = '';
         
         elements.mainImage.onload = () => {
+            skipMissingCount = 0;
             elements.mainImage.style.opacity = '1';
             updateInfoOverlay(image);
             updateLocationOverlay(image);
@@ -582,8 +583,8 @@ function displayImage(image, preloadImages = []) {
         };
         
         elements.mainImage.onerror = () => {
-            console.error('Failed to load image:', imageUrl);
-            showNoImages();
+            console.error('Failed to load image (missing file?), skipping:', imageUrl);
+            autoSkipMissing();
         };
     } else {
         // Subsequent images - use crossfade
@@ -612,6 +613,7 @@ function displayImage(image, preloadImages = []) {
             
             // Wait for image to load before crossfading
             nextImg.onload = () => {
+                skipMissingCount = 0;
                 swapImages(currentImg, nextImg, image);
                 
                 // Apply matting background for the new image (non-blocking)
@@ -623,10 +625,11 @@ function displayImage(image, preloadImages = []) {
             };
             
             nextImg.onerror = () => {
-                console.error('Failed to load image:', imageUrl);
+                console.error('Failed to load image (missing file?), skipping:', imageUrl);
                 nextImg.style.display = 'none';
                 nextImg.classList.remove('next');
                 nextImg.style.zIndex = '';
+                autoSkipMissing();
             };
         }
     }
@@ -670,7 +673,36 @@ function swapImages(currentImg, nextImg, image) {
     elements.noImagesMessage.style.display = 'none';
 }
 
+// When an image fails to load (file missing from disk), auto-advance to next.
+// Caps retries to avoid infinite loops if every image is missing.
+let skipMissingCount = 0;
+function autoSkipMissing() {
+    skipMissingCount++;
+    if (skipMissingCount > 10) {
+        // Too many consecutive failures — give up and show empty state
+        skipMissingCount = 0;
+        showNoImages();
+        return;
+    }
+    // Ask server for next image (server will also clean up the stale DB entry)
+    fetch('/api/image/next')
+        .then(r => r.json())
+        .then(data => {
+            if (data.image) {
+                displayImage(data.image, data.preload || []);
+            } else {
+                skipMissingCount = 0;
+                showNoImages();
+            }
+        })
+        .catch(() => {
+            skipMissingCount = 0;
+            showNoImages();
+        });
+}
+
 function showNoImages() {
+    skipMissingCount = 0;
     elements.mainImage.style.display = 'none';
     elements.mainImage.classList.remove('current', 'next');
     elements.mainImage.style.zIndex = '';
