@@ -1,6 +1,7 @@
 const express = require('express');
 const { spawn } = require('child_process');
 const path = require('path');
+const logger = require('../logger');
 const router = express.Router();
 
 function createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServerSlideshowInterval) {
@@ -46,6 +47,17 @@ function createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServer
                 updates.favoritesOnly = req.body.favoritesOnly === true || req.body.favoritesOnly === 'true';
             }
 
+            if (req.body.filterSql !== undefined) {
+                const filterSql = typeof req.body.filterSql === 'string' ? req.body.filterSql.trim() : '';
+                const validation = db.validateFilterQuery(filterSql);
+                if (!validation.valid) {
+                    logger.debug('Filter SQL validation failed', { filterSql, error: validation.error });
+                    return res.status(400).json({ error: validation.error || 'Invalid filter SQL' });
+                }
+                updates.filterSql = filterSql;
+            }
+
+            logger.debug('Settings update', { updates });
             const newSettings = slideshowEngine.updateSettings(updates);
 
             // Update server-side slideshow interval if it changed
@@ -57,7 +69,7 @@ function createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServer
             if (broadcastUpdate) {
                 // If settings changed that affect the current image (like favorites filter),
                 // also send the current image
-                if (updates.favoritesOnly !== undefined || updates.mode !== undefined || updates.order !== undefined) {
+                if (updates.favoritesOnly !== undefined || updates.filterSql !== undefined || updates.mode !== undefined || updates.order !== undefined) {
                     const image = slideshowEngine.getCurrentImage();
                     if (image) {
                         const preload = slideshowEngine.getPreloadImages();

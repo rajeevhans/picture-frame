@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
+const logger = require('../logger');
 
 class DatabaseManager {
     constructor(dbPath) {
@@ -84,12 +85,58 @@ class DatabaseManager {
         return stmt.get(filepath);
     }
 
+    /**
+     * Validates a filter SQL query. The query must be a SELECT that returns an id column.
+     * @param {string} sql - The filter query (e.g. "SELECT id FROM images WHERE tags LIKE '%vacation%'")
+     * @returns {{ valid: boolean, error?: string }}
+     */
+    validateFilterQuery(sql) {
+        const trimmed = (sql || '').trim();
+        if (!trimmed) {
+            return { valid: true };
+        }
+
+        const upper = trimmed.toUpperCase();
+        if (!upper.startsWith('SELECT')) {
+            return { valid: false, error: 'Query must start with SELECT' };
+        }
+
+        const dangerous = [/^INSERT\b/i, /\bUPDATE\b/i, /\bDELETE\b/i, /\bDROP\b/i, /\bCREATE\b/i, /\bALTER\b/i, /\bTRUNCATE\b/i];
+        for (const re of dangerous) {
+            if (re.test(trimmed)) {
+                return { valid: false, error: 'Query contains forbidden keyword (only SELECT is allowed)' };
+            }
+        }
+        if (trimmed.includes('--')) {
+            return { valid: false, error: 'SQL comments (--) are not allowed' };
+        }
+
+        if (trimmed.includes(';')) {
+            return { valid: false, error: 'Only a single SELECT statement is allowed' };
+        }
+
+        try {
+            this.db.prepare(`SELECT * FROM (${trimmed}) LIMIT 1`).get();
+        } catch (err) {
+            return { valid: false, error: err.message || 'Invalid SQL syntax' };
+        }
+
+        return { valid: true };
+    }
+
     getAllImages(options = {}) {
         let query = 'SELECT * FROM images WHERE is_deleted = 0';
         const params = [];
 
         if (options.favoritesOnly) {
             query += ' AND is_favorite = 1';
+        }
+
+        // Filter by custom SQL query - only include images whose id is in the result set
+        // Wrap in SELECT id FROM (...) so queries returning multiple columns (e.g. SELECT *) work
+        const filterSql = (options.filterSql || '').trim();
+        if (filterSql) {
+            query += ` AND id IN (SELECT id FROM (${filterSql}))`;
         }
 
         // Filter for "this day in history" - photos from today's month/day across all years
@@ -128,10 +175,15 @@ class DatabaseManager {
         return stmt.all(...params);
     }
 
-    getImagesCount(favoritesOnly = false, thisDay = false) {
+    getImagesCount(favoritesOnly = false, thisDay = false, filterSql = null) {
         let query = 'SELECT COUNT(*) as count FROM images WHERE is_deleted = 0';
         if (favoritesOnly) {
             query += ' AND is_favorite = 1';
+        }
+
+        const filterSqlTrimmed = (filterSql || '').trim();
+        if (filterSqlTrimmed) {
+            query += ` AND id IN (SELECT id FROM (${filterSqlTrimmed}))`;
         }
         
         // Filter for "this day in history"
@@ -225,6 +277,7 @@ class DatabaseManager {
         
         for (const image of images) {
             if (!checkFileExists(image.filepath)) {
+                logger.debug('Cleaning up orphaned entry', { filepath: image.filepath });
                 console.log(`Cleaning up orphaned entry: ${image.filepath}`);
                 this.deleteImageByPath(image.filepath);
                 removedCount++;
@@ -246,7 +299,9 @@ class DatabaseManager {
     
     hardDelete(id) {
         const stmt = this.db.prepare('DELETE FROM images WHERE id = ?');
-        return stmt.run(id);
+        const result = stmt.run(id);
+        logger.debug('hardDelete', { id, changes: result.changes });
+        return result;
     }
 
     // Settings operations
@@ -276,8 +331,9 @@ class DatabaseManager {
 
     // Statistics
     getStats() {
-        const total = this.getImagesCount(false);
-        const favorites = this.getImagesCount(true);
+        const filterSql = this.getSetting('filter_sql');
+        const total = this.getImagesCount(false, false, filterSql);
+        const favorites = this.getImagesCount(true, false, filterSql);
         
         const dateRange = this.db.prepare(`
             SELECT MIN(date_taken) as earliest, MAX(date_taken) as latest

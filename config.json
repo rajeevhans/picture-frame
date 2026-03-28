@@ -1,6 +1,9 @@
 {
-  "photoDirectory": "/Volumes/1tb/all-pics/",
+  "photoDirectory": "/Users/mini/all-pics",
   "databasePath": "./data/pictureframe.db",
+  "debug": {
+    "enabled": true
+  },
   "serverPort": 3000,
   "slideshow": {
     "defaultInterval": 10,

@@ -188,6 +188,12 @@
                 </label>
             </div>
 
+            <div class="settings-group">
+                <label for="filterSqlTextarea">Filter SQL Query (optional)</label>
+                <textarea id="filterSqlTextarea" rows="3" placeholder="e.g. SELECT id FROM images WHERE tags LIKE '%vacation%'"></textarea>
+                <p class="settings-help">Query must return an <code>id</code> column from the images table. Leave empty to show all images.</p>
+            </div>
+
             <div class="settings-group stats">
                 <h3>Statistics</h3>
                 <div class="stats-grid">

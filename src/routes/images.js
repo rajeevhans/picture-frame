@@ -5,6 +5,7 @@ const os = require('os');
 const { spawn } = require('child_process');
 const sharp = require('sharp');
 const ImageRotationService = require('../services/imageRotation');
+const logger = require('../logger');
 const router = express.Router();
 
 function createImageRoutes(db, slideshowEngine, ctx) {
@@ -288,11 +289,14 @@ function createImageRoutes(db, slideshowEngine, ctx) {
         try {
             const imageId = parseInt(req.params.id);
             const image = db.getImageById(imageId);
-            
+
+            logger.debug('Delete request received', { imageId, filepath: image?.filepath });
+
             if (!image) {
+                logger.debug('Delete aborted: image not found', { imageId });
                 return res.status(404).json({ error: 'Image not found' });
             }
-            
+
             // Immediately get next image and return response (don't wait for deletion)
             slideshowEngine.refreshImageList();
             const nextImage = advanceSlideshow ? await advanceSlideshow('next') : slideshowEngine.getNextImage();
@@ -309,7 +313,9 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             }
             
             res.json(response);
-            
+
+            logger.debug('Delete response sent, starting background deletion', { imageId });
+
             // Handle deletion in background (don't await)
             setImmediate(() => {
                 (async () => {
@@ -318,13 +324,14 @@ function createImageRoutes(db, slideshowEngine, ctx) {
                         const deletedDir = path.resolve(__dirname, '..', '..', 'data', 'deleted');
                         if (!fs.existsSync(deletedDir)) {
                             fs.mkdirSync(deletedDir, { recursive: true });
+                            logger.debug('Delete: created deleted folder', { deletedDir });
                         }
-                        
+
                         // Get source and destination paths
                         const sourcePath = path.resolve(image.filepath);
                         const filename = path.basename(image.filepath);
                         const destPath = path.join(deletedDir, filename);
-                        
+
                         // Handle filename conflicts by adding timestamp
                         let finalDestPath = destPath;
                         if (fs.existsSync(finalDestPath)) {
@@ -332,53 +339,64 @@ function createImageRoutes(db, slideshowEngine, ctx) {
                             const ext = path.extname(filename);
                             const baseName = path.basename(filename, ext);
                             finalDestPath = path.join(deletedDir, `${baseName}_${timestamp}${ext}`);
+                            logger.debug('Delete: filename conflict, using timestamped path', { original: destPath, final: finalDestPath });
                         }
-                        
+
                         // Move the file asynchronously
                         // Use copy+unlink for cross-filesystem moves (e.g. external drive -> project data)
                         if (fs.existsSync(sourcePath)) {
                             try {
                                 await fs.promises.rename(sourcePath, finalDestPath);
+                                logger.debug('Delete: file moved (rename)', { sourcePath, destPath: finalDestPath });
                             } catch (renameErr) {
                                 if (renameErr.code === 'EXDEV') {
                                     // Cross-filesystem: copy then delete
                                     await fs.promises.copyFile(sourcePath, finalDestPath);
                                     await fs.promises.unlink(sourcePath);
+                                    logger.debug('Delete: file moved (copy+unlink, cross-filesystem)', { sourcePath, destPath: finalDestPath });
                                 } else {
                                     throw renameErr;
                                 }
                             }
                             console.log(`Moved ${image.filepath} to ${finalDestPath}`);
                         } else {
+                            logger.debug('Delete: source file not found, removing from database only', { sourcePath, imageId });
                             console.log(`File not found: ${sourcePath}, removing from database only`);
                         }
-                        
+
                         // Remove from database
                         db.hardDelete(imageId);
-                        
+                        logger.debug('Delete: removed from database', { imageId });
+
                         // Refresh slideshow list after deletion
                         slideshowEngine.refreshImageList();
+                        logger.debug('Delete: complete', { imageId });
                     } catch (error) {
+                        logger.error('Delete: background deletion failed', { imageId, error: error.message });
+
                         console.error('Error in background deletion:', error);
                         // Still try to remove from database even if file move failed
                         try {
                             db.hardDelete(imageId);
                             slideshowEngine.refreshImageList();
+                            logger.debug('Delete: recovered - removed from database after file move failure', { imageId });
                         } catch (dbError) {
+                            logger.error('Delete: failed to remove from database', { imageId, error: dbError.message });
                             console.error('Error removing from database:', dbError);
                         }
                     }
                 })();
             });
         } catch (error) {
+            logger.error('Delete: request failed', { imageId: req.params.id, error: error.message });
             console.error('Error deleting image:', error);
-            res.status(500).json({ 
+            res.status(500).json({
                 error: 'Failed to delete image',
-                message: error.message 
+                message: error.message
             });
         }
     });
-    
+
     // Rotate image left (counter-clockwise)
     router.post('/:id/rotate-left', async (req, res) => {
         try {
@@ -572,15 +590,17 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             const offset = (page - 1) * limit;
             const favoritesOnly = req.query.favorites === 'true';
             const orderBy = req.query.orderBy || 'date';
+            const filterSql = db.getSetting('filter_sql');
 
             const images = db.getAllImages({
                 favoritesOnly,
+                filterSql,
                 orderBy,
                 limit,
                 offset
             });
 
-            const total = db.getImagesCount(favoritesOnly);
+            const total = db.getImagesCount(favoritesOnly, false, filterSql);
 
             res.json({
                 images: images.map(img => slideshowEngine.formatImage(img)),

@@ -13,6 +13,8 @@ class FileWatcher {
     }
 
     start(directoryPath) {
+        const logger = require('../logger');
+        logger.debug('File watcher starting', { directoryPath });
         console.log(`Starting file watcher on: ${directoryPath}`);
 
         const extensions = this.config.fileExtensions.map(ext => 
@@ -57,6 +59,7 @@ class FileWatcher {
 
     handleFileAdded(filePath) {
         this.debounce(filePath, 'add', () => {
+            require('../logger').debug('File added', { filePath });
             console.log(`File added: ${filePath}`);
             this.queueTask({ type: 'add', filePath });
         });
@@ -64,6 +67,7 @@ class FileWatcher {
 
     handleFileChanged(filePath) {
         this.debounce(filePath, 'change', () => {
+            require('../logger').debug('File changed', { filePath });
             console.log(`File changed: ${filePath}`);
             this.queueTask({ type: 'change', filePath });
         });
@@ -71,6 +75,7 @@ class FileWatcher {
 
     handleFileRemoved(filePath) {
         this.debounce(filePath, 'unlink', () => {
+            require('../logger').debug('File removed', { filePath });
             console.log(`File removed: ${filePath}`);
             this.queueTask({ type: 'unlink', filePath });
         });

@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { loadConfig } = require('./config');
+const logger = require('./logger');
 const DatabaseManager = require('./database/db');
 const DirectoryScanner = require('./indexer/scanner');
 const FileWatcher = require('./indexer/watcher');
@@ -12,6 +13,7 @@ const createSettingsRoutes = require('./routes/settings');
 
 // Load configuration (~/picframe-config.json or config.json)
 const config = loadConfig();
+logger.init(config);
 
 // Initialize Express app
 const app = express();
@@ -94,10 +96,12 @@ async function advanceSlideshow(direction, source = 'unknown') {
             image = slideshowEngine.getPreviousImage();
         }
         if (image) {
+            logger.debug('Slideshow advanced', { direction, source, imageId: image.id });
             broadcastCurrentImage(image);
         }
         return image;
     } catch (error) {
+        logger.error('Error advancing slideshow', { direction, source, error: error.message });
         console.error(`Error advancing slideshow (${direction}, ${source}):`, error);
         return null;
     } finally {
@@ -125,6 +129,7 @@ function startServerSlideshow() {
     isSlideshowPlaying = true;
     scheduleNextTick('start');
     broadcastUpdate('slideshowState', { isPlaying: true });
+    logger.debug('Server slideshow started', { interval: slideshowEngine.settings.interval });
     console.log(`Server-side slideshow started (${slideshowEngine.settings.interval || 10}s interval)`);
 }
 
@@ -134,6 +139,7 @@ function stopServerSlideshow() {
     slideshowTickToken++;
     isSlideshowPlaying = false;
     broadcastUpdate('slideshowState', { isPlaying: false });
+    logger.debug('Server slideshow stopped');
     console.log('Server-side slideshow stopped');
 }
 
@@ -216,7 +222,8 @@ app.get('/api/events', (req, res) => {
     
     // Add client to set
     sseClients.add(res);
-    
+    logger.debug('SSE client connected', { totalClients: sseClients.size });
+
     // Send initial current image
     try {
         const image = slideshowEngine.getCurrentImage();
@@ -238,6 +245,7 @@ app.get('/api/events', (req, res) => {
     // Remove client on disconnect
     req.on('close', () => {
         sseClients.delete(res);
+        logger.debug('SSE client disconnected', { remainingClients: sseClients.size });
         res.end();
     });
 });
@@ -337,6 +345,7 @@ async function startServer() {
             sseClients.forEach(client => client.end());
             sseClients.clear();
             db.close();
+            logger.close();
             process.exit(0);
         });
 
@@ -348,12 +357,20 @@ async function startServer() {
             sseClients.forEach(client => client.end());
             sseClients.clear();
             db.close();
+            logger.close();
             process.exit(0);
         });
     }
 
     // Start HTTP server
     app.listen(PORT, () => {
+        logger.debug('Server started', {
+            port: PORT,
+            photoDir,
+            dbPath,
+            imageCount: db.getImagesCount(),
+            mode: slideshowEngine.settings.mode
+        });
         console.log(`\n=== Picture Frame Server Running ===`);
         console.log(`URL: http://localhost:${PORT}`);
         console.log(`Photo Directory: ${photoDir}`);

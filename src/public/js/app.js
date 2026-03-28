@@ -45,6 +45,7 @@ const elements = {
     orderSelect: document.getElementById('orderSelect'),
     intervalSelect: document.getElementById('intervalSelect'),
     favoritesOnlyCheck: document.getElementById('favoritesOnlyCheck'),
+    filterSqlTextarea: document.getElementById('filterSqlTextarea'),
     saveSettingsBtn: document.getElementById('saveSettingsBtn'),
     cancelSettingsBtn: document.getElementById('cancelSettingsBtn'),
     resetDatabaseBtn: document.getElementById('resetDatabaseBtn'),
@@ -480,19 +481,26 @@ async function saveSettings() {
         mode: elements.modeSelect.value,
         order: elements.orderSelect.value,
         interval: parseInt(elements.intervalSelect.value),
-        favoritesOnly: elements.favoritesOnlyCheck.checked
+        favoritesOnly: elements.favoritesOnlyCheck.checked,
+        filterSql: elements.filterSqlTextarea.value.trim()
     };
     
     try {
-        const data = await apiCall('/settings', {
+        const response = await fetch('/api/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newSettings)
         });
-        
+        const data = await response.json();
+
+        if (!response.ok) {
+            alert(data.error || 'Failed to save settings');
+            return;
+        }
+
         updateSettings(data.settings);
         closeSettings();
-        
+
         // Server will handle slideshow interval update and broadcast new image if filters changed
         // No need to manually reload - SSE will handle it
     } catch (error) {
@@ -855,6 +863,9 @@ function updateSettings(settings) {
     elements.orderSelect.value = settings.order;
     elements.intervalSelect.value = settings.interval.toString();
     elements.favoritesOnlyCheck.checked = settings.favoritesOnly;
+    if (elements.filterSqlTextarea) {
+        elements.filterSqlTextarea.value = settings.filterSql || '';
+    }
 }
 
 function updateClock() {
