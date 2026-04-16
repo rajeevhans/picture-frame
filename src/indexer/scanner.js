@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const MetadataExtractor = require('./metadata');
-const { resizeImage, shouldExcludeFromScan } = require('./resizePipeline');
+const { resizeImage, shouldExcludeFromScan, isResizedPath } = require('./resizePipeline');
 
 class DirectoryScanner {
     constructor(db, config) {
@@ -41,8 +41,8 @@ class DirectoryScanner {
         this.stats = { total: 0, processed: 0, skipped: 0, errors: 0 };
         const startTime = Date.now();
 
-        // First, collect all image files
-        const imageFiles = this.collectImageFiles(directoryPath);
+        // First, collect all image files (include resized/ when reindexing so existing resized files get indexed)
+        const imageFiles = this.collectImageFiles(directoryPath, [], forceReindex);
         this.stats.total = imageFiles.length;
 
         console.log(`Found ${this.stats.total} image files`);
@@ -75,7 +75,7 @@ class DirectoryScanner {
         return this.stats;
     }
 
-    collectImageFiles(dir, fileList = []) {
+    collectImageFiles(dir, fileList = [], includeResized = false) {
         const photoDir = path.resolve(this.config.photoDirectory || dir);
         const entries = fs.readdirSync(dir, { withFileTypes: true });
 
@@ -87,13 +87,13 @@ class DirectoryScanner {
                 continue;
             }
 
-            // Exclude resized/ folder - only scan originals
-            if (entry.isDirectory() && shouldExcludeFromScan(fullPath, photoDir)) {
+            // Exclude resized/ folder when not reindexing - only scan originals; include when reindexing/recreating library
+            if (!includeResized && entry.isDirectory() && shouldExcludeFromScan(fullPath, photoDir)) {
                 continue;
             }
 
             if (entry.isDirectory()) {
-                this.collectImageFiles(fullPath, fileList);
+                this.collectImageFiles(fullPath, fileList, includeResized);
             } else if (entry.isFile()) {
                 if (this.metadataExtractor.isImageFile(fullPath, this.config.fileExtensions)) {
                     fileList.push(fullPath);
@@ -115,6 +115,7 @@ class DirectoryScanner {
     async processBatch(files, forceReindex) {
         const batch = [];
         const originalsToDelete = [];
+        const photoDir = path.resolve(this.config.photoDirectory || path.dirname(files[0] || '.'));
 
         for (const filePath of files) {
             try {
@@ -128,6 +129,21 @@ class DirectoryScanner {
                             continue;
                         }
                     }
+                }
+
+                // Already in resized/ (reindex/recreate): index as-is, no resize, no delete
+                if (isResizedPath(filePath, photoDir)) {
+                    const metadata = await this.metadataExtractor.extractMetadata(filePath);
+                    const stat = fs.statSync(filePath);
+                    const batchItem = {
+                        ...metadata,
+                        filepath: filePath,
+                        filename: path.basename(filePath),
+                        fileModified: stat.mtimeMs
+                    };
+                    batch.push(batchItem);
+                    this.stats.processed++;
+                    continue;
                 }
 
                 // Extract metadata from original

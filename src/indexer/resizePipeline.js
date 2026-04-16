@@ -89,7 +89,12 @@ async function resizeWithSharp(inputPath, outputPath, config) {
     const formatOpts = (outputFormat === 'jpeg' || outputFormat === 'jpg')
         ? (quality !== undefined ? { quality } : {})
         : {};
-    await pipeline.toFormat(outputFormat, formatOpts).toFile(outputPath);
+
+    // Preserve EXIF and other metadata in the resized file. If we applied rotation,
+    // set output orientation to 1 so EXIF matches the already-rotated pixels.
+    const appliedRotation = meta.orientation && meta.orientation > 1;
+    const metadataOpts = appliedRotation ? { orientation: 1 } : {};
+    await pipeline.toFormat(outputFormat, formatOpts).withMetadata(metadataOpts).toFile(outputPath);
 }
 
 /**

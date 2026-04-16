@@ -1,5 +1,5 @@
 {
-  "photoDirectory": "/Volumes/1tb/all-pics/",
+  "photoDirectory": "/Volumes/1tb/all-pics",
   "databasePath": "./data/pictureframe.db",
   "serverPort": 3000,
   "slideshow": {
