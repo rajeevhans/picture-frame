@@ -2,6 +2,72 @@ const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * Canonical mapping between camelCase (JS/API) and snake_case (DB column)
+ * for the `images` table. Used by:
+ *   - updateImage: decide which columns the caller asked to update
+ *   - formatImage: convert DB rows to the client-facing shape
+ *
+ * Each entry: jsKey -> { col: sqlColumnName, type?: 'json'|'bool'|'raw' }
+ *   - 'json'  : JSON-encode on write, JSON-parse (or []) on read
+ *   - 'bool'  : read-side coerce 0/1 -> true/false (writes pass through)
+ *   - 'raw'   : no transformation (default)
+ *
+ * Columns only written by insertImage (e.g. created_at, updated_at) and
+ * columns not exposed to clients (file_modified, is_deleted) are handled
+ * directly in their specific methods and are not listed here.
+ */
+const IMAGE_FIELD_MAP = {
+    filepath:         { col: 'filepath' },
+    filename:         { col: 'filename' },
+    fileModified:     { col: 'file_modified' },
+    dateTaken:        { col: 'date_taken' },
+    dateAdded:        { col: 'date_added' },
+    latitude:         { col: 'latitude' },
+    longitude:        { col: 'longitude' },
+    locationCity:     { col: 'location_city' },
+    locationCountry:  { col: 'location_country' },
+    width:            { col: 'width' },
+    height:           { col: 'height' },
+    orientation:      { col: 'orientation' },
+    rotation:         { col: 'rotation' },
+    cameraModel:      { col: 'camera_model' },
+    cameraMake:       { col: 'camera_make' },
+    isFavorite:       { col: 'is_favorite', type: 'bool' },
+    isDeleted:        { col: 'is_deleted', type: 'bool' },
+    tags:             { col: 'tags',        type: 'json' }
+};
+
+/**
+ * Convert a raw DB row to the client-facing image shape. This is the
+ * single source of truth for camelCase field names the frontend consumes.
+ *
+ * Note: fileModified, isDeleted, createdAt, updatedAt are intentionally
+ * omitted — they're server-side bookkeeping, not part of the public shape.
+ */
+function formatImage(row) {
+    if (!row) return null;
+    return {
+        id: row.id,
+        filepath: row.filepath,
+        filename: row.filename,
+        dateTaken: row.date_taken,
+        dateAdded: row.date_added,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        locationCity: row.location_city,
+        locationCountry: row.location_country,
+        width: row.width,
+        height: row.height,
+        orientation: row.orientation,
+        rotation: row.rotation || 0,
+        cameraModel: row.camera_model,
+        cameraMake: row.camera_make,
+        isFavorite: row.is_favorite === 1,
+        tags: row.tags ? JSON.parse(row.tags) : []
+    };
+}
+
 class DatabaseManager {
     constructor(dbPath) {
         // Ensure data directory exists
@@ -146,38 +212,29 @@ class DatabaseManager {
         return stmt.get().count;
     }
 
+    /**
+     * Previously this was a ~35-line chain of `if (updates.X !== undefined)`
+     * blocks; now it iterates IMAGE_FIELD_MAP so adding a settable field is
+     * a one-line map entry.
+     *
+     * Only columns present in IMAGE_FIELD_MAP are updatable. Keys not in the
+     * map are silently ignored (matches historical behavior, which only
+     * accepted isFavorite / isDeleted / tags / locationCity / locationCountry
+     * / rotation).
+     */
     updateImage(id, updates) {
+        const UPDATABLE = ['isFavorite', 'isDeleted', 'tags', 'locationCity', 'locationCountry', 'rotation'];
         const fields = [];
-        const values = {};
-        
-        if (updates.isFavorite !== undefined) {
-            fields.push('is_favorite = @isFavorite');
-            values.isFavorite = updates.isFavorite;
-        }
-        if (updates.isDeleted !== undefined) {
-            fields.push('is_deleted = @isDeleted');
-            values.isDeleted = updates.isDeleted;
-        }
-        if (updates.tags !== undefined) {
-            fields.push('tags = @tags');
-            values.tags = JSON.stringify(updates.tags);
-        }
-        if (updates.locationCity !== undefined) {
-            fields.push('location_city = @locationCity');
-            values.locationCity = updates.locationCity;
-        }
-        if (updates.locationCountry !== undefined) {
-            fields.push('location_country = @locationCountry');
-            values.locationCountry = updates.locationCountry;
-        }
-        if (updates.rotation !== undefined) {
-            fields.push('rotation = @rotation');
-            values.rotation = updates.rotation;
+        const values = { id, updatedAt: Date.now() };
+
+        for (const jsKey of UPDATABLE) {
+            if (updates[jsKey] === undefined) continue;
+            const { col, type } = IMAGE_FIELD_MAP[jsKey];
+            fields.push(`${col} = @${jsKey}`);
+            values[jsKey] = (type === 'json') ? JSON.stringify(updates[jsKey]) : updates[jsKey];
         }
 
         fields.push('updated_at = @updatedAt');
-        values.updatedAt = Date.now();
-        values.id = id;
 
         const query = `UPDATE images SET ${fields.join(', ')} WHERE id = @id`;
         const stmt = this.db.prepare(query);
@@ -239,11 +296,6 @@ class DatabaseManager {
         return stmt.run(Date.now(), id);
     }
 
-    softDelete(id) {
-        const stmt = this.db.prepare('UPDATE images SET is_deleted = 1, updated_at = ? WHERE id = ?');
-        return stmt.run(Date.now(), id);
-    }
-    
     hardDelete(id) {
         const stmt = this.db.prepare('DELETE FROM images WHERE id = ?');
         return stmt.run(id);
@@ -308,11 +360,22 @@ class DatabaseManager {
         return stmt.all(limit);
     }
 
+    /**
+     * Convenience: delegates to the module-level formatImage. Kept as an
+     * instance method so callers holding a `db` reference can format rows
+     * without importing the standalone function.
+     */
+    formatImage(row) {
+        return formatImage(row);
+    }
+
     close() {
         this.db.close();
     }
 }
 
 module.exports = DatabaseManager;
+module.exports.formatImage = formatImage;
+module.exports.IMAGE_FIELD_MAP = IMAGE_FIELD_MAP;
 
 

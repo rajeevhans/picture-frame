@@ -2,6 +2,8 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { loadConfig } = require('./config');
+const { resolveDbPath, resolvePhotoDir } = require('./lib/paths');
+const { imageMessage } = require('./lib/messages');
 const DatabaseManager = require('./database/db');
 const DirectoryScanner = require('./indexer/scanner');
 const FileWatcher = require('./indexer/watcher');
@@ -17,9 +19,9 @@ const config = loadConfig();
 const app = express();
 app.use(express.json());
 
-// Resolve paths
-const dbPath = path.resolve(__dirname, '..', config.databasePath);
-const photoDir = config.photoDirectory;
+// Resolve paths (centralized in src/lib/paths.js)
+const dbPath = resolveDbPath(config);
+const photoDir = resolvePhotoDir(config);
 
 // Initialize database
 console.log('Initializing database...');
@@ -28,33 +30,18 @@ const db = new DatabaseManager(dbPath);
 // Initialize scanner
 const scanner = new DirectoryScanner(db, config);
 
-// Initialize slideshow engine
-const slideshowEngine = new SlideshowEngine(db, config);
-
 // Initialize geolocation service
 const geoService = new GeolocationService();
 
 // SSE clients for broadcasting updates
 const sseClients = new Set();
-let slideshowTimer = null; // timeout handle (legacy name)
-let isSlideshowPlaying = false;
-let advanceInProgress = false;
-let slideshowTickToken = 0;
 
-// Check command line arguments
-const args = process.argv.slice(2);
-const forceIndex = args.includes('--index') || args.includes('-i');
-const devMode = args.includes('--dev');
-
-// Initialize slideshow engine
-slideshowEngine.initialize();
-
-// Broadcast function to send updates to all connected clients
-function broadcastUpdate(type, data) {
-    const message = JSON.stringify({ type, ...data });
-    const sseMessage = `data: ${message}\n\n`;
-    
-    // Send to all connected clients
+/**
+ * Broadcast a pre-built SSE message object (typically from a factory in
+ * src/lib/messages.js) to every connected client.
+ */
+function broadcastMessage(message) {
+    const sseMessage = `data: ${JSON.stringify(message)}\n\n`;
     sseClients.forEach(client => {
         try {
             client.write(sseMessage);
@@ -65,99 +52,32 @@ function broadcastUpdate(type, data) {
     });
 }
 
-function broadcastCurrentImage(image) {
-    if (!image) return;
-    const preload = slideshowEngine.getPreloadImages();
-    broadcastUpdate('image', {
-        image,
-        preload,
-        settings: slideshowEngine.getSettings(),
-        isPlaying: isSlideshowPlaying
-    });
-}
+// Initialize slideshow engine with broadcaster injected (engine owns the
+// auto-advance timer and emits its own state-change messages).
+const slideshowEngine = new SlideshowEngine(db, config, { broadcast: broadcastMessage });
 
-function clearSlideshowTimer() {
-    if (slideshowTimer) {
-        clearTimeout(slideshowTimer);
-        slideshowTimer = null;
-    }
-}
+// Check command line arguments
+const args = process.argv.slice(2);
+const forceIndex = args.includes('--index') || args.includes('-i');
+const devMode = args.includes('--dev');
 
-async function advanceSlideshow(direction, source = 'unknown') {
-    if (advanceInProgress) return null;
-    advanceInProgress = true;
-    try {
-        let image = null;
-        if (direction === 'next') {
-            image = slideshowEngine.getNextImage();
-        } else if (direction === 'previous') {
-            image = slideshowEngine.getPreviousImage();
-        }
-        if (image) {
-            broadcastCurrentImage(image);
-        }
-        return image;
-    } catch (error) {
-        console.error(`Error advancing slideshow (${direction}, ${source}):`, error);
-        return null;
-    } finally {
-        advanceInProgress = false;
-    }
-}
+slideshowEngine.initialize();
 
-function scheduleNextTick(reason = 'unknown') {
-    if (!isSlideshowPlaying) return;
-    clearSlideshowTimer();
-    // Increment token so any already-queued callbacks become no-ops.
-    const myToken = ++slideshowTickToken;
-    const interval = slideshowEngine.settings.interval || 10;
-    slideshowTimer = setTimeout(async () => {
-        // If a manual navigation or interval change happened, ignore this stale tick.
-        if (myToken !== slideshowTickToken) return;
-        await advanceSlideshow('next', 'timer');
-        scheduleNextTick('timer');
-    }, interval * 1000);
-}
-
-// Server-side slideshow timer (rescheduling timeout, resets on manual navigation)
-function startServerSlideshow() {
-    if (isSlideshowPlaying) return;
-    isSlideshowPlaying = true;
-    scheduleNextTick('start');
-    broadcastUpdate('slideshowState', { isPlaying: true });
-    console.log(`Server-side slideshow started (${slideshowEngine.settings.interval || 10}s interval)`);
-}
-
-function stopServerSlideshow() {
-    clearSlideshowTimer();
-    // Invalidate any queued tick callback
-    slideshowTickToken++;
-    isSlideshowPlaying = false;
-    broadcastUpdate('slideshowState', { isPlaying: false });
-    console.log('Server-side slideshow stopped');
-}
-
-function updateServerSlideshowInterval() {
-    // If playing, reschedule to apply new interval immediately.
-    if (isSlideshowPlaying) {
-        scheduleNextTick('intervalChange');
-    }
-}
-
-// API Routes - pass broadcast function and slideshow control functions
+// API Routes
 app.use('/api/image', createImageRoutes(db, slideshowEngine, {
-    broadcastUpdate,
-    broadcastCurrentImage,
-    advanceSlideshow: async (direction) => {
-        const img = await advanceSlideshow(direction, 'api');
-        if (isSlideshowPlaying) {
-            scheduleNextTick('manualNavigation');
-        }
-        return img;
-    },
-    getIsPlaying: () => isSlideshowPlaying
+    broadcastMessage,
+    // Engine.advance() broadcasts the image itself; route wrappers preserve
+    // the existing double-broadcast-on-delete behavior by also calling
+    // engine.broadcastCurrentImage as before.
+    advanceSlideshow: (direction) => slideshowEngine.advance(direction, 'api'),
+    broadcastCurrentImage: (image) => slideshowEngine.broadcastCurrentImage(image)
 }));
-app.use('/api/settings', createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServerSlideshowInterval));
+app.use('/api/settings', createSettingsRoutes(
+    db,
+    slideshowEngine,
+    broadcastMessage,
+    () => slideshowEngine.updateIntervalIfPlaying()
+));
 
 // Serve static files (frontend)
 app.use(express.static(path.join(__dirname, 'public')));
@@ -181,15 +101,15 @@ app.get('/api/health', (req, res) => {
 // Slideshow control endpoints (server-side authoritative)
 app.get('/api/slideshow/state', (req, res) => {
     res.json({
-        isPlaying: isSlideshowPlaying,
+        isPlaying: slideshowEngine.isPlaying,
         interval: slideshowEngine.settings.interval || 10
     });
 });
 
 app.post('/api/slideshow/start', (req, res) => {
     try {
-        startServerSlideshow();
-        res.json({ success: true, isPlaying: isSlideshowPlaying });
+        slideshowEngine.play();
+        res.json({ success: true, isPlaying: slideshowEngine.isPlaying });
     } catch (error) {
         console.error('Error starting server slideshow:', error);
         res.status(500).json({ error: 'Internal server error' });
@@ -198,8 +118,8 @@ app.post('/api/slideshow/start', (req, res) => {
 
 app.post('/api/slideshow/pause', (req, res) => {
     try {
-        stopServerSlideshow();
-        res.json({ success: true, isPlaying: isSlideshowPlaying });
+        slideshowEngine.pause();
+        res.json({ success: true, isPlaying: slideshowEngine.isPlaying });
     } catch (error) {
         console.error('Error pausing server slideshow:', error);
         res.status(500).json({ error: 'Internal server error' });
@@ -221,15 +141,13 @@ app.get('/api/events', (req, res) => {
     try {
         const image = slideshowEngine.getCurrentImage();
         if (image) {
-            const preload = slideshowEngine.getPreloadImages();
-            const data = JSON.stringify({
-                type: 'image',
+            const msg = imageMessage({
                 image,
-                preload,
+                preload: slideshowEngine.getPreloadImages(),
                 settings: slideshowEngine.getSettings(),
-                isPlaying: isSlideshowPlaying
+                isPlaying: slideshowEngine.isPlaying
             });
-            res.write(`data: ${data}\n\n`);
+            res.write(`data: ${JSON.stringify(msg)}\n\n`);
         }
     } catch (error) {
         console.error('Error sending initial image to SSE client:', error);
@@ -328,28 +246,18 @@ async function startServer() {
         const watcher = new FileWatcher(db, scanner, config);
         watcher.start(photoDir);
 
-        // Graceful shutdown
-        process.on('SIGINT', () => {
+        // Graceful shutdown (single handler, registered for both signals)
+        const shutdown = () => {
             console.log('\nShutting down...');
-            stopServerSlideshow();
+            slideshowEngine.stopForShutdown();
             watcher.stop();
-            // Close all SSE connections
             sseClients.forEach(client => client.end());
             sseClients.clear();
             db.close();
             process.exit(0);
-        });
-
-        process.on('SIGTERM', () => {
-            console.log('\nShutting down...');
-            stopServerSlideshow();
-            watcher.stop();
-            // Close all SSE connections
-            sseClients.forEach(client => client.end());
-            sseClients.clear();
-            db.close();
-            process.exit(0);
-        });
+        };
+        process.on('SIGINT', shutdown);
+        process.on('SIGTERM', shutdown);
     }
 
     // Start HTTP server
@@ -367,9 +275,9 @@ async function startServer() {
             console.log('Start normally with: npm start');
             process.exit(0);
         }
-        
+
         // Start server-side slideshow
-        startServerSlideshow();
+        slideshowEngine.play();
         
         // Start background geolocation lookup
         if (!forceIndex) {

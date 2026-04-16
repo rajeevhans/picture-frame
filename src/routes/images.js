@@ -1,81 +1,132 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
-const { spawn } = require('child_process');
-const sharp = require('sharp');
 const ImageRotationService = require('../services/imageRotation');
+const { isHeif, streamHeifAsJpeg, libheifInstallHint } = require('../lib/heif');
+const { DELETED_DIR } = require('../lib/paths');
+const { favoriteMessage, rotateMessage } = require('../lib/messages');
 const router = express.Router();
+
+/**
+ * Move a file into the deleted folder, handling name collisions with a
+ * timestamp suffix and falling back to copy+unlink across filesystems
+ * (e.g. external drive -> project data dir triggers EXDEV on rename).
+ *
+ * Returns the final destination path, or null if the source didn't exist.
+ */
+async function moveFileToDeleted(sourcePath) {
+    if (!fs.existsSync(DELETED_DIR)) {
+        fs.mkdirSync(DELETED_DIR, { recursive: true });
+    }
+
+    if (!fs.existsSync(sourcePath)) {
+        return null;
+    }
+
+    const filename = path.basename(sourcePath);
+    let destPath = path.join(DELETED_DIR, filename);
+
+    // Collision? Suffix with timestamp.
+    if (fs.existsSync(destPath)) {
+        const ext = path.extname(filename);
+        const baseName = path.basename(filename, ext);
+        destPath = path.join(DELETED_DIR, `${baseName}_${Date.now()}${ext}`);
+    }
+
+    try {
+        await fs.promises.rename(sourcePath, destPath);
+    } catch (renameErr) {
+        if (renameErr.code !== 'EXDEV') throw renameErr;
+        // Cross-filesystem: copy then delete
+        await fs.promises.copyFile(sourcePath, destPath);
+        await fs.promises.unlink(sourcePath);
+    }
+
+    return destPath;
+}
+
+/**
+ * Common sender for /serve and /download: if the file is HEIF, convert to
+ * JPEG and stream; otherwise send bytes directly. `mode` selects between
+ * inline serving (cache headers, HEIF quality 90) and attachment download
+ * (Content-Disposition, HEIF quality 95).
+ *
+ * Assumes the caller has already verified the file exists.
+ */
+async function sendImageOrHeif(req, res, { image, absolutePath, mode, context, nocache = false }) {
+    const ext = path.extname(absolutePath).toLowerCase();
+    const heifFile = isHeif(ext);
+    const isDownload = mode === 'download';
+    const quality = isDownload ? 95 : 90;
+    const originalFilename = path.basename(image.filepath);
+
+    // Content-Type / Content-Disposition headers
+    if (isDownload) {
+        if (heifFile) {
+            const jpegFilename = originalFilename.replace(/\.(heic|heif)$/i, '.jpg');
+            res.set({
+                'Content-Disposition': `attachment; filename="${jpegFilename}"`,
+                'Content-Type': 'image/jpeg'
+            });
+        } else {
+            res.set({
+                'Content-Disposition': `attachment; filename="${originalFilename}"`,
+                'Content-Type': 'application/octet-stream'
+            });
+        }
+    } else {
+        if (heifFile) {
+            res.set('Content-Type', 'image/jpeg');
+        }
+        // Cache headers only apply to inline serving
+        if (nocache) {
+            res.set({
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            });
+        } else {
+            const etag = `${image.id}-${image.file_modified}-${image.updated_at}`;
+            res.set({
+                'Cache-Control': 'public, max-age=86400',
+                'ETag': etag
+            });
+        }
+    }
+
+    if (heifFile) {
+        try {
+            await streamHeifAsJpeg(absolutePath, res, quality);
+        } catch (conversionError) {
+            if (!res.headersSent) {
+                const installCmd = libheifInstallHint();
+                console.error(`HEIF conversion error for ${context} ${image.filepath}:`, conversionError.message);
+                console.error(`HEIF support may not be installed. Install with: ${installCmd}`);
+                res.status(415).json({
+                    error: isDownload ? 'HEIF format not supported for download' : 'HEIF format not supported',
+                    message: `HEIF conversion failed. Make sure libheif is installed (${installCmd}).`
+                });
+            }
+        }
+        return;
+    }
+
+    // Non-HEIF: stream directly
+    res.sendFile(absolutePath, (err) => {
+        if (!err) return;
+        const label = isDownload ? 'downloading' : 'serving';
+        console.error(`Error ${label} image ${image.filepath}:`, err.message);
+        if (!res.headersSent) {
+            res.status(404).json({ error: 'Image file not found' });
+        }
+    });
+}
 
 function createImageRoutes(db, slideshowEngine, ctx) {
     const rotationService = new ImageRotationService();
-    const broadcastUpdate = ctx && ctx.broadcastUpdate;
+    const broadcastMessage = ctx && ctx.broadcastMessage;
     const broadcastCurrentImage = ctx && ctx.broadcastCurrentImage;
     const advanceSlideshow = ctx && ctx.advanceSlideshow;
-
-    /**
-     * Convert HEIF to JPEG using heif-convert as fallback when Sharp fails
-     * Optimized: Try Sharp first, fallback to heif-convert only on error
-     * @param {string} heifPath - Path to HEIF file
-     * @param {NodeJS.WritableStream} outputStream - Stream to write JPEG to
-     * @param {number} quality - JPEG quality (1-100)
-     * @returns {Promise<void>}
-     */
-    async function convertHeifToJpeg(heifPath, outputStream, quality = 90) {
-        // Use heif-convert since Sharp can't handle compression format 11.6003
-        // heif-convert requires an output file, so we use a temp file
-        const tempFile = path.join(os.tmpdir(), `heif_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`);
-        
-        return new Promise((resolve, reject) => {
-            const heifConvert = spawn('heif-convert', ['-q', quality.toString(), heifPath, tempFile], {
-                stdio: ['ignore', 'pipe', 'pipe']
-            });
-            
-            let stderr = '';
-            heifConvert.stderr.on('data', (data) => {
-                // Progress messages go to stderr, we can ignore them
-                stderr += data.toString();
-            });
-            
-            heifConvert.on('close', async (code) => {
-                if (code === 0) {
-                    try {
-                        // Stream the converted file to response
-                        const fileStream = fs.createReadStream(tempFile);
-                        fileStream.pipe(outputStream);
-                        
-                        fileStream.on('end', async () => {
-                            // Clean up temp file
-                            try {
-                                await fs.promises.unlink(tempFile);
-                            } catch (unlinkErr) {
-                                // Ignore cleanup errors
-                            }
-                            resolve();
-                        });
-                        
-                        fileStream.on('error', async (err) => {
-                            // Clean up temp file
-                            try {
-                                await fs.promises.unlink(tempFile);
-                            } catch (unlinkErr) {
-                                // Ignore cleanup errors
-                            }
-                            reject(err);
-                        });
-                    } catch (err) {
-                        reject(err);
-                    }
-                } else {
-                    reject(new Error(`heif-convert failed with code ${code}: ${stderr}`));
-                }
-            });
-            
-            heifConvert.on('error', (spawnErr) => {
-                reject(new Error(`Failed to spawn heif-convert: ${spawnErr.message}. Make sure libheif is installed.`));
-            });
-        });
-    }
 
     // Get current image
     router.get('/current', (req, res) => {
@@ -166,84 +217,24 @@ function createImageRoutes(db, slideshowEngine, ctx) {
         try {
             const imageId = parseInt(req.params.id);
             const image = db.getImageById(imageId);
-
             if (!image) {
                 return res.status(404).json({ error: 'Image not found' });
             }
 
-            // Check if nocache parameter is present (used after rotation)
-            const nocache = req.query.nocache === '1';
-            
-            // Resolve to absolute path
             const absolutePath = path.resolve(image.filepath);
-            
-            // Check if file exists (async to avoid blocking)
             try {
                 await fs.promises.access(absolutePath, fs.constants.F_OK);
             } catch (accessError) {
                 return res.status(404).json({ error: 'Image file not found' });
             }
-            
-            // Check if file is HEIF/HEIC format
-            const ext = path.extname(absolutePath).toLowerCase();
-            const isHeif = ['.heic', '.heif'].includes(ext);
-            
-            // Set content type
-            if (isHeif) {
-                res.set('Content-Type', 'image/jpeg');
-            }
-            
-            // Set caching headers
-            if (nocache) {
-                // No cache for freshly rotated images
-                res.set({
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache',
-                    'Expires': '0'
-                });
-            } else {
-                // Normal caching - use file modification time for better cache busting
-                const etag = `${image.id}-${image.file_modified}-${image.updated_at}`;
-                res.set({
-                    'Cache-Control': 'public, max-age=86400', // 24 hours
-                    'ETag': etag
-                });
-            }
-            
-            // Convert HEIF to JPEG on-the-fly, or serve directly
-            if (isHeif) {
-                try {
-                    await convertHeifToJpeg(absolutePath, res, 90);
-                } catch (conversionError) {
-                    if (!res.headersSent) {
-                        const isMacOS = process.platform === 'darwin';
-                        const installCmd = isMacOS 
-                            ? 'brew install libheif'
-                            : 'sudo apt-get install libheif-dev libde265-dev libx265-dev';
-                        
-                        console.error(`HEIF conversion error for ${image.filepath}:`, conversionError.message);
-                        console.error(`HEIF support may not be installed. Install with: ${installCmd}`);
-                        res.status(415).json({ 
-                            error: 'HEIF format not supported',
-                            message: `HEIF conversion failed. Make sure libheif is installed (${installCmd}).`
-                        });
-                    }
-                }
-            } else {
-                // Send the file directly for non-HEIF formats
-                res.sendFile(absolutePath, (err) => {
-                    if (err) {
-                        // Only log the error, don't try to send response
-                        // (headers may already be sent or client disconnected)
-                        console.error(`Error serving image ${image.filepath}:`, err.message);
-                        
-                        // Only send error response if headers haven't been sent yet
-                        if (!res.headersSent) {
-                            res.status(404).json({ error: 'Image file not found' });
-                        }
-                    }
-                });
-            }
+
+            await sendImageOrHeif(req, res, {
+                image,
+                absolutePath,
+                mode: 'serve',
+                context: 'serve',
+                nocache: req.query.nocache === '1'
+            });
         } catch (error) {
             console.error('Error serving image:', error);
             if (!res.headersSent) {
@@ -266,11 +257,8 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             }
 
             // Broadcast favorite update to all clients
-            if (broadcastUpdate) {
-                broadcastUpdate('favorite', {
-                    imageId,
-                    isFavorite: image.is_favorite === 1
-                });
+            if (broadcastMessage) {
+                broadcastMessage(favoriteMessage(imageId, image.is_favorite === 1));
             }
 
             res.json({
@@ -314,49 +302,16 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             setImmediate(() => {
                 (async () => {
                     try {
-                        // Create deleted folder if it doesn't exist (use project-relative path)
-                        const deletedDir = path.resolve(__dirname, '..', '..', 'data', 'deleted');
-                        if (!fs.existsSync(deletedDir)) {
-                            fs.mkdirSync(deletedDir, { recursive: true });
-                        }
-                        
-                        // Get source and destination paths
                         const sourcePath = path.resolve(image.filepath);
-                        const filename = path.basename(image.filepath);
-                        const destPath = path.join(deletedDir, filename);
-                        
-                        // Handle filename conflicts by adding timestamp
-                        let finalDestPath = destPath;
-                        if (fs.existsSync(finalDestPath)) {
-                            const timestamp = Date.now();
-                            const ext = path.extname(filename);
-                            const baseName = path.basename(filename, ext);
-                            finalDestPath = path.join(deletedDir, `${baseName}_${timestamp}${ext}`);
-                        }
-                        
-                        // Move the file asynchronously
-                        // Use copy+unlink for cross-filesystem moves (e.g. external drive -> project data)
-                        if (fs.existsSync(sourcePath)) {
-                            try {
-                                await fs.promises.rename(sourcePath, finalDestPath);
-                            } catch (renameErr) {
-                                if (renameErr.code === 'EXDEV') {
-                                    // Cross-filesystem: copy then delete
-                                    await fs.promises.copyFile(sourcePath, finalDestPath);
-                                    await fs.promises.unlink(sourcePath);
-                                } else {
-                                    throw renameErr;
-                                }
-                            }
-                            console.log(`Moved ${image.filepath} to ${finalDestPath}`);
+                        const destPath = await moveFileToDeleted(sourcePath);
+                        if (destPath) {
+                            console.log(`Moved ${image.filepath} to ${destPath}`);
                         } else {
                             console.log(`File not found: ${sourcePath}, removing from database only`);
                         }
-                        
+
                         // Remove from database
                         db.hardDelete(imageId);
-                        
-                        // Refresh slideshow list after deletion
                         slideshowEngine.refreshImageList();
                     } catch (error) {
                         console.error('Error in background deletion:', error);
@@ -402,11 +357,8 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             console.log(`Rotated image ${imageId} left (counter-clockwise)`);
 
             // Tell all clients to reload this image with cache-busting
-            if (broadcastUpdate) {
-                broadcastUpdate('rotate', {
-                    imageId,
-                    cacheBuster: Date.now() + Math.random()
-                });
+            if (broadcastMessage) {
+                broadcastMessage(rotateMessage(imageId, Date.now() + Math.random()));
             }
             
             res.json({
@@ -447,11 +399,8 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             console.log(`Rotated image ${imageId} right (clockwise)`);
 
             // Tell all clients to reload this image with cache-busting
-            if (broadcastUpdate) {
-                broadcastUpdate('rotate', {
-                    imageId,
-                    cacheBuster: Date.now() + Math.random()
-                });
+            if (broadcastMessage) {
+                broadcastMessage(rotateMessage(imageId, Date.now() + Math.random()));
             }
             
             res.json({
@@ -474,71 +423,23 @@ function createImageRoutes(db, slideshowEngine, ctx) {
         try {
             const imageId = parseInt(req.params.id);
             const image = db.getImageById(imageId);
-
             if (!image) {
                 return res.status(404).json({ error: 'Image not found' });
             }
 
-            // Resolve to absolute path
             const absolutePath = path.resolve(image.filepath);
-            
-            // Check if file exists (async to avoid blocking)
             try {
                 await fs.promises.access(absolutePath, fs.constants.F_OK);
             } catch (accessError) {
                 return res.status(404).json({ error: 'Image file not found' });
             }
 
-            // Get the original filename
-            const originalFilename = path.basename(image.filepath);
-            
-            // Check if file is HEIF/HEIC format
-            const ext = path.extname(absolutePath).toLowerCase();
-            const isHeif = ['.heic', '.heif'].includes(ext);
-            
-            // Set download headers
-            if (isHeif) {
-                // Convert HEIF to JPEG for download
-                const jpegFilename = originalFilename.replace(/\.(heic|heif)$/i, '.jpg');
-                res.set({
-                    'Content-Disposition': `attachment; filename="${jpegFilename}"`,
-                    'Content-Type': 'image/jpeg'
-                });
-                
-                try {
-                    await convertHeifToJpeg(absolutePath, res, 95);
-                } catch (conversionError) {
-                    if (!res.headersSent) {
-                        const isMacOS = process.platform === 'darwin';
-                        const installCmd = isMacOS 
-                            ? 'brew install libheif'
-                            : 'sudo apt-get install libheif-dev libde265-dev libx265-dev';
-                        
-                        console.error(`HEIF conversion error for download ${image.filepath}:`, conversionError.message);
-                        console.error(`HEIF support may not be installed. Install with: ${installCmd}`);
-                        res.status(415).json({ 
-                            error: 'HEIF format not supported for download',
-                            message: `HEIF conversion failed. Make sure libheif is installed (${installCmd}).`
-                        });
-                    }
-                }
-            } else {
-                // Set download headers for regular images
-                res.set({
-                    'Content-Disposition': `attachment; filename="${originalFilename}"`,
-                    'Content-Type': 'application/octet-stream'
-                });
-                
-                // Send the file directly
-                res.sendFile(absolutePath, (err) => {
-                    if (err) {
-                        console.error(`Error downloading image ${image.filepath}:`, err.message);
-                        if (!res.headersSent) {
-                            res.status(404).json({ error: 'Image file not found' });
-                        }
-                    }
-                });
-            }
+            await sendImageOrHeif(req, res, {
+                image,
+                absolutePath,
+                mode: 'download',
+                context: 'download'
+            });
         } catch (error) {
             console.error('Error downloading image:', error);
             if (!res.headersSent) {

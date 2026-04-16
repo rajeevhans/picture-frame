@@ -1,3 +1,5 @@
+const { apiCall, imageServeUrl, newCacheBuster, connectSSE } = window.PictureFrame;
+
 // Application state
 const state = {
     currentImage: null,
@@ -93,29 +95,24 @@ function connectToSSE() {
     if (state.eventSource) {
         state.eventSource.close();
     }
-    
-    state.eventSource = new EventSource('/api/events');
-    
-    state.eventSource.onmessage = (event) => {
-        try {
-            const data = JSON.parse(event.data);
-            handleSSEMessage(data);
-        } catch (error) {
-            console.error('Error parsing SSE message:', error);
-        }
-    };
-    
-    state.eventSource.onerror = (error) => {
-        console.error('SSE connection error:', error);
-        // Attempt to reconnect after 3 seconds
-        setTimeout(() => {
-            if (state.eventSource && state.eventSource.readyState === EventSource.CLOSED) {
-                console.log('Reconnecting to SSE...');
-                connectToSSE();
+
+    state.eventSource = connectSSE('/api/events', {
+        onMessage: handleSSEMessage,
+        onStatusChange: (status) => {
+            if (status === 'error') {
+                console.error('SSE connection error');
+                // Attempt to reconnect after 3 seconds if the browser's
+                // automatic retry leaves us in a CLOSED state.
+                setTimeout(() => {
+                    if (state.eventSource && state.eventSource.readyState === EventSource.CLOSED) {
+                        console.log('Reconnecting to SSE...');
+                        connectToSSE();
+                    }
+                }, 3000);
             }
-        }, 3000);
-    };
-    
+        }
+    });
+
     console.log('Connected to SSE stream');
 }
 
@@ -157,14 +154,14 @@ function handleSSEMessage(data) {
         case 'rotate':
             // Reload the currently displayed image with aggressive cache busting
             if (state.currentImage && state.currentImage.id === data.imageId) {
-                const t = data.cacheBuster || (Date.now() + Math.random());
+                const cacheBuster = data.cacheBuster || newCacheBuster();
                 const currentEl = elements.mainImage.classList.contains('current') ? elements.mainImage : elements.nextImage;
                 const imageId = state.currentImage.id;
-                
+
                 // Create a temporary image to preload the rotated version
                 const tempImg = new Image();
-                const newImageUrl = `/api/image/${imageId}/serve?t=${t}&nocache=1`;
-                
+                const newImageUrl = imageServeUrl(imageId, { cacheBuster });
+
                 tempImg.onload = async () => {
                     // Once loaded, update the current image
                     currentEl.src = newImageUrl;
@@ -172,13 +169,13 @@ function handleSSEMessage(data) {
                     // Apply matting background for rotated image
                     await applyMattingBackground(currentEl);
                 };
-                
+
                 tempImg.onerror = () => {
                     console.error('SSE: Failed to reload rotated image');
                     // Fallback: try without cache busting
-                    currentEl.src = `/api/image/${imageId}/serve?nocache=1`;
+                    currentEl.src = imageServeUrl(imageId, { nocache: true });
                 };
-                
+
                 // Start preloading
                 tempImg.src = newImageUrl;
             }
@@ -186,20 +183,6 @@ function handleSSEMessage(data) {
             
         default:
             console.log('Unknown SSE message type:', data.type);
-    }
-}
-
-// API calls
-async function apiCall(endpoint, options = {}) {
-    try {
-        const response = await fetch(`/api${endpoint}`, options);
-        if (!response.ok) {
-            throw new Error(`API error: ${response.statusText}`);
-        }
-        return await response.json();
-    } catch (error) {
-        console.error('API call failed:', error);
-        throw error;
     }
 }
 
@@ -395,7 +378,7 @@ function downloadImage() {
     
     try {
         // Create a temporary anchor element to trigger download
-        const downloadUrl = `/api/image/${state.currentImage.id}/download`;
+        const downloadUrl = `/api/image/${state.currentImage.id}/download`; // not using imageServeUrl — different endpoint
         const link = document.createElement('a');
         link.href = downloadUrl;
         link.download = ''; // Let the server set the filename
@@ -513,123 +496,136 @@ async function loadStats() {
 }
 
 // Display functions
-function displayImage(image, preloadImages = []) {
+
+/**
+ * If a delete is pending for a different image than the one we're about to
+ * show, cancel it. Only called from displayImage — extracted because the
+ * bookkeeping was visually noisy inline.
+ */
+function cancelPendingDeletionForOtherImage(newImageId) {
+    if (!state.deleteTimeout || !state.pendingDeletion) return;
+    if (state.pendingDeletion.imageId === newImageId) return;
+
+    clearTimeout(state.deleteTimeout);
+    state.deleteTimeout = null;
+    if (state.pendingDeletion.imageElement) {
+        state.pendingDeletion.imageElement.classList.remove('deleting');
+    }
+    elements.undoBtn.style.display = 'none';
+    elements.undoBtn.classList.remove('visible');
+    state.pendingDeletion = null;
+}
+
+/**
+ * Queue a matting-background pass for the given element. Runs after a short
+ * delay so it doesn't compete with the crossfade for main-thread time, and
+ * swallows errors to avoid unhandled promise rejections.
+ */
+function queueMattingBackground(imgElement) {
+    setTimeout(() => {
+        applyMattingBackground(imgElement).catch(err => {
+            console.error('Error applying matting background:', err);
+        });
+    }, 100);
+}
+
+/**
+ * First-image load path: no previous image on screen, so we skip the
+ * crossfade and fade in from zero opacity.
+ */
+function displayFirstImage(image, imageUrl) {
+    elements.mainImage.style.display = 'block';
+    elements.mainImage.src = imageUrl;
+    elements.mainImage.alt = image.filename;
+    elements.mainImage.classList.add('current');
+    elements.mainImage.classList.remove('next');
+    elements.mainImage.style.opacity = '0';
+    elements.mainImage.style.zIndex = '2'; // Ensure it's above matting
+
+    // Ensure nextImage is hidden and reset
+    elements.nextImage.style.display = 'none';
+    elements.nextImage.classList.remove('current', 'next');
+    elements.nextImage.style.zIndex = '';
+
+    elements.mainImage.onload = () => {
+        elements.mainImage.style.opacity = '1';
+        updateInfoOverlay(image);
+        updateLocationOverlay(image);
+        updateFavoriteButton();
+        elements.loadingIndicator.style.display = 'none';
+        elements.noImagesMessage.style.display = 'none';
+        queueMattingBackground(elements.mainImage);
+    };
+
+    elements.mainImage.onerror = () => {
+        console.error('Failed to load image:', imageUrl);
+        showNoImages();
+    };
+}
+
+/**
+ * Subsequent-image path: crossfade between the two <img> elements. If the
+ * target URL is already loaded into the idle element, swap immediately.
+ */
+function displayWithCrossfade(image, imageUrl) {
+    const currentImg = elements.mainImage.classList.contains('current') ? elements.mainImage : elements.nextImage;
+    const nextImg = elements.mainImage.classList.contains('current') ? elements.nextImage : elements.mainImage;
+
+    // If image is already loaded in nextImg, use it immediately
+    if (nextImg.src === imageUrl && nextImg.complete) {
+        swapImages(currentImg, nextImg, image);
+        queueMattingBackground(nextImg);
+        return;
+    }
+
+    // Load new image - set up as next image before loading
+    nextImg.classList.remove('current');
+    nextImg.classList.add('next');
+    nextImg.style.display = 'block';
+    nextImg.style.opacity = '0'; // Start invisible
+    nextImg.style.zIndex = '3'; // Ensure it's above current during transition
+    nextImg.src = imageUrl;
+    nextImg.alt = image.filename;
+
+    // Wait for image to load before crossfading
+    nextImg.onload = () => {
+        swapImages(currentImg, nextImg, image);
+        queueMattingBackground(nextImg);
+    };
+
+    nextImg.onerror = () => {
+        console.error('Failed to load image:', imageUrl);
+        nextImg.style.display = 'none';
+        nextImg.classList.remove('next');
+        nextImg.style.zIndex = '';
+    };
+}
+
+function displayImage(image, preloadList = []) {
     if (!image) {
         showNoImages();
         return;
     }
-    
-    // Cancel any pending deletion when a new image is displayed (e.g., via SSE)
-    if (state.deleteTimeout && state.pendingDeletion && state.pendingDeletion.imageId !== image.id) {
-        clearTimeout(state.deleteTimeout);
-        state.deleteTimeout = null;
-        if (state.pendingDeletion.imageElement) {
-            state.pendingDeletion.imageElement.classList.remove('deleting');
-        }
-        elements.undoBtn.style.display = 'none';
-        elements.undoBtn.classList.remove('visible');
-        state.pendingDeletion = null;
-    }
-    
+
+    cancelPendingDeletionForOtherImage(image.id);
     state.currentImage = image;
-    
-    const imageUrl = `/api/image/${image.id}/serve`;
-    
-    // Check if this is the first image load (no current image visible)
-    // After delete, DOM elements are cleared so this will be false, forcing fresh load
-    const hasCurrentImage = elements.mainImage.classList.contains('current') && 
-                           elements.mainImage.style.display !== 'none' &&
-                           elements.mainImage.complete;
-    
+
+    const imageUrl = imageServeUrl(image.id);
+
+    // First image load has no previous image on screen. After delete, DOM
+    // elements are cleared so this is also false, forcing fresh load.
+    const hasCurrentImage = elements.mainImage.classList.contains('current') &&
+                            elements.mainImage.style.display !== 'none' &&
+                            elements.mainImage.complete;
+
     if (!hasCurrentImage) {
-        // First image load - no crossfade needed
-        elements.mainImage.style.display = 'block';
-        elements.mainImage.src = imageUrl;
-        elements.mainImage.alt = image.filename;
-        elements.mainImage.classList.add('current');
-        elements.mainImage.classList.remove('next');
-        elements.mainImage.style.opacity = '0';
-        elements.mainImage.style.zIndex = '2'; // Ensure it's above matting
-        
-        // Ensure nextImage is hidden and reset
-        elements.nextImage.style.display = 'none';
-        elements.nextImage.classList.remove('current', 'next');
-        elements.nextImage.style.zIndex = '';
-        
-        elements.mainImage.onload = () => {
-            elements.mainImage.style.opacity = '1';
-            updateInfoOverlay(image);
-            updateLocationOverlay(image);
-            updateFavoriteButton();
-            elements.loadingIndicator.style.display = 'none';
-            elements.noImagesMessage.style.display = 'none';
-            
-            // Apply matting background based on image colors (non-blocking)
-            // Don't await - let it run in background
-            setTimeout(() => {
-                applyMattingBackground(elements.mainImage).catch(err => {
-                    console.error('Error applying matting background:', err);
-                });
-            }, 100);
-        };
-        
-        elements.mainImage.onerror = () => {
-            console.error('Failed to load image:', imageUrl);
-            showNoImages();
-        };
+        displayFirstImage(image, imageUrl);
     } else {
-        // Subsequent images - use crossfade
-        const currentImg = elements.mainImage.classList.contains('current') ? elements.mainImage : elements.nextImage;
-        const nextImg = elements.mainImage.classList.contains('current') ? elements.nextImage : elements.mainImage;
-        
-        // If image is already loaded in nextImg, use it immediately
-        if (nextImg.src === imageUrl && nextImg.complete) {
-            // Image already loaded, swap immediately
-            swapImages(currentImg, nextImg, image);
-            // Apply matting background for the already-loaded image (non-blocking)
-            setTimeout(() => {
-                applyMattingBackground(nextImg).catch(err => {
-                    console.error('Error applying matting background:', err);
-                });
-            }, 100);
-        } else {
-            // Load new image - set up as next image before loading
-            nextImg.classList.remove('current');
-            nextImg.classList.add('next');
-            nextImg.style.display = 'block';
-            nextImg.style.opacity = '0'; // Start invisible
-            nextImg.style.zIndex = '3'; // Ensure it's above current during transition
-            nextImg.src = imageUrl;
-            nextImg.alt = image.filename;
-            
-            // Wait for image to load before crossfading
-            nextImg.onload = () => {
-                swapImages(currentImg, nextImg, image);
-                
-                // Apply matting background for the new image (non-blocking)
-                setTimeout(() => {
-                    applyMattingBackground(nextImg).catch(err => {
-                        console.error('Error applying matting background:', err);
-                    });
-                }, 100);
-            };
-            
-            nextImg.onerror = () => {
-                console.error('Failed to load image:', imageUrl);
-                nextImg.style.display = 'none';
-                nextImg.classList.remove('next');
-                nextImg.style.zIndex = '';
-            };
-        }
+        displayWithCrossfade(image, imageUrl);
     }
-    
+
     // Preload upcoming images
-    if (preloadImages && preloadImages.length > 0) {
-        preloadImages.forEach(preloadImg => {
-            const img = new Image();
-            img.src = `/api/image/${preloadImg.id}/serve`;
-        });
-    }
+    preloadImages(preloadList);
 }
 
 function swapImages(currentImg, nextImg, image) {
@@ -816,9 +812,8 @@ async function rotateImage(direction) {
             
             // Create a new image element to preload the rotated image
             const tempImg = new Image();
-            const cacheBuster = Date.now() + Math.random();
-            const newImageUrl = `/api/image/${imageId}/serve?t=${cacheBuster}&nocache=1`;
-            
+            const newImageUrl = imageServeUrl(imageId, { cacheBuster: newCacheBuster() });
+
             tempImg.onload = async () => {
                 // Once the rotated image is loaded, update the display
                 currentImg.src = newImageUrl;
@@ -830,13 +825,13 @@ async function rotateImage(direction) {
                 // Apply matting background for rotated image
                 await applyMattingBackground(currentImg);
             };
-            
+
             tempImg.onerror = () => {
                 console.error('Failed to reload rotated image');
                 // Fallback: try to reload without cache busting
-                currentImg.src = `/api/image/${imageId}/serve?nocache=1`;
+                currentImg.src = imageServeUrl(imageId, { nocache: true });
             };
-            
+
             // Start loading the rotated image
             tempImg.src = newImageUrl;
         }
@@ -869,159 +864,134 @@ function updateClock() {
 
 function preloadImages(images) {
     if (!images || images.length === 0) return;
-    
+
     images.forEach(image => {
         const img = new Image();
-        img.src = `/api/image/${image.id}/serve`;
+        img.src = imageServeUrl(image.id);
     });
 }
 
-// Extract dominant colors from an image
+// Neutral fallback palettes used when color extraction can't run.
+// Two shades because CORS-tainted draws used a slightly darker palette
+// historically; kept for visual parity.
+const FALLBACK_PALETTE_NORMAL = [
+    { r: 60, g: 60, b: 60 },
+    { r: 80, g: 80, b: 80 },
+    { r: 100, g: 100, b: 100 }
+];
+const FALLBACK_PALETTE_CORS_TAINTED = [
+    { r: 40, g: 40, b: 40 },
+    { r: 60, g: 60, b: 60 },
+    { r: 80, g: 80, b: 80 }
+];
+
+/**
+ * Pick canvas dimensions that preserve aspect ratio, capped at maxSize.
+ * Returns null if the resulting canvas would be too small to sample usefully.
+ */
+function getCanvasDimensions(imgWidth, imgHeight, maxSize = 200) {
+    if (!imgWidth || !imgHeight) return null;
+    const aspectRatio = imgWidth / imgHeight;
+    const canvasWidth = aspectRatio > 1 ? maxSize : Math.round(maxSize * aspectRatio);
+    const canvasHeight = aspectRatio > 1 ? Math.round(maxSize / aspectRatio) : maxSize;
+    if (canvasWidth < 10 || canvasHeight < 10) return null;
+    return { canvasWidth, canvasHeight };
+}
+
+/**
+ * Draw the image into an offscreen canvas and return its ImageData.
+ * Returns null (with a console log) if the draw or read fails — typically
+ * a CORS taint on cross-origin pixel data.
+ */
+function getImageDataForElement(imageElement) {
+    const imgWidth = imageElement.naturalWidth || imageElement.width;
+    const imgHeight = imageElement.naturalHeight || imageElement.height;
+    const dims = getCanvasDimensions(imgWidth, imgHeight);
+    if (!dims) {
+        console.warn('Image dimensions unusable for color extraction:', imgWidth, imgHeight);
+        return null;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = dims.canvasWidth;
+    canvas.height = dims.canvasHeight;
+    const ctx = canvas.getContext('2d');
+
+    try {
+        ctx.drawImage(imageElement, 0, 0, canvas.width, canvas.height);
+    } catch (drawError) {
+        console.error('Error drawing image to canvas (possible CORS issue):', drawError);
+        return { tainted: true };
+    }
+
+    try {
+        return { imageData: ctx.getImageData(0, 0, canvas.width, canvas.height) };
+    } catch (dataError) {
+        console.error('Error getting image data (possible CORS issue):', dataError);
+        return { tainted: true };
+    }
+}
+
+/**
+ * Sample pixels from raw RGBA data and convert to {r,g,b,hsl,colorfulness}
+ * entries suitable for `findDominantColors`. Skips transparent pixels and
+ * very dark/light colors (poor matting candidates).
+ */
+function sampleColorsFromPixels(data, sampleRate = 5) {
+    const colors = [];
+    for (let i = 0; i < data.length; i += 4 * sampleRate) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const a = data[i + 3];
+        if (a < 128) continue;
+
+        const hsl = rgbToHsl(r, g, b);
+        if (hsl[2] < 0.15 || hsl[2] > 0.9) continue;
+
+        colors.push({ r, g, b, hsl, colorfulness: hsl[1] * hsl[2] });
+    }
+    return colors;
+}
+
+/**
+ * Extract dominant colors from an image element. Falls back to a neutral
+ * palette for any of: image not loaded, zero dimensions, canvas too small,
+ * CORS-tainted draw, or no colors survived the light/dark filter.
+ */
 async function extractDominantColors(imageElement, colorCount = 3) {
-    return new Promise((resolve) => {
-        try {
-            // Ensure image is loaded
-            if (!imageElement.complete) {
-                console.warn('Image not complete, waiting...');
-                imageElement.onload = () => {
-                    extractDominantColors(imageElement, colorCount).then(resolve);
-                };
-                imageElement.onerror = () => {
-                    console.error('Image failed to load for color extraction');
-                    resolve([
-                        { r: 60, g: 60, b: 60 },
-                        { r: 80, g: 80, b: 80 },
-                        { r: 100, g: 100, b: 100 }
-                    ]);
-                };
-                return;
-            }
-            
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            
-            // Get actual image dimensions
-            const imgWidth = imageElement.naturalWidth || imageElement.width;
-            const imgHeight = imageElement.naturalHeight || imageElement.height;
-            
-            // Check if we have valid dimensions
-            if (!imgWidth || !imgHeight || imgWidth === 0 || imgHeight === 0) {
-                console.warn('Invalid image dimensions:', imgWidth, imgHeight);
-                resolve([
-                    { r: 60, g: 60, b: 60 },
-                    { r: 80, g: 80, b: 80 },
-                    { r: 100, g: 100, b: 100 }
-                ]);
-                return;
-            }
-            
-            // Set canvas size (smaller for performance, but large enough for accuracy)
-            const maxSize = 200;
-            const aspectRatio = imgWidth / imgHeight;
-            
-            let canvasWidth, canvasHeight;
-            if (aspectRatio > 1) {
-                canvasWidth = maxSize;
-                canvasHeight = Math.round(maxSize / aspectRatio);
-            } else {
-                canvasWidth = Math.round(maxSize * aspectRatio);
-                canvasHeight = maxSize;
-            }
-            
-            // Ensure minimum canvas size
-            if (canvasWidth < 10 || canvasHeight < 10) {
-                console.warn('Canvas too small:', canvasWidth, canvasHeight);
-                resolve([
-                    { r: 60, g: 60, b: 60 },
-                    { r: 80, g: 80, b: 80 },
-                    { r: 100, g: 100, b: 100 }
-                ]);
-                return;
-            }
-            
-            canvas.width = canvasWidth;
-            canvas.height = canvasHeight;
-            
-            // Draw image to canvas
-            try {
-                ctx.drawImage(imageElement, 0, 0, canvas.width, canvas.height);
-            } catch (drawError) {
-                console.error('Error drawing image to canvas (possible CORS issue):', drawError);
-                resolve([
-                    { r: 40, g: 40, b: 40 },
-                    { r: 60, g: 60, b: 60 },
-                    { r: 80, g: 80, b: 80 }
-                ]);
-                return;
-            }
-            
-            // Get image data
-            let imageData;
-            try {
-                imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            } catch (dataError) {
-                console.error('Error getting image data (possible CORS issue):', dataError);
-                resolve([
-                    { r: 40, g: 40, b: 40 },
-                    { r: 60, g: 60, b: 60 },
-                    { r: 80, g: 80, b: 80 }
-                ]);
-                return;
-            }
-            
-            const data = imageData.data;
-            
-            // Sample pixels (every Nth pixel for performance)
-            const sampleRate = 5;
-            const colors = [];
-            
-            for (let i = 0; i < data.length; i += 4 * sampleRate) {
-                const r = data[i];
-                const g = data[i + 1];
-                const b = data[i + 2];
-                const a = data[i + 3];
-                
-                // Skip transparent pixels
-                if (a < 128) continue;
-                
-                // Convert to HSL for better color grouping
-                const hsl = rgbToHsl(r, g, b);
-                
-                // Skip very dark or very light colors (they don't make good matting)
-                if (hsl[2] < 0.15 || hsl[2] > 0.9) continue;
-                
-                // Calculate colorfulness score (prefer colorful over gray)
-                const colorfulness = hsl[1] * hsl[2]; // saturation * lightness
-                
-                colors.push({ r, g, b, hsl, colorfulness });
-            }
-            
-            if (colors.length === 0) {
-                console.log('No suitable colors found, using fallback');
-                // Fallback to neutral colors (brighter so we can see it's working)
-                resolve([
-                    { r: 60, g: 60, b: 60 },
-                    { r: 80, g: 80, b: 80 },
-                    { r: 100, g: 100, b: 100 }
-                ]);
-                return;
-            }
-            
-            // Group similar colors and find dominant ones
-            const dominantColors = findDominantColors(colors, colorCount);
-            
-            console.log('Extracted colors:', dominantColors);
-            resolve(dominantColors);
-        } catch (error) {
-            console.error('Error extracting colors:', error);
-            // Fallback to neutral gray (brighter so we can see it's working)
-            resolve([
-                { r: 60, g: 60, b: 60 },
-                { r: 80, g: 80, b: 80 },
-                { r: 100, g: 100, b: 100 }
-            ]);
+    // Wait for load if needed — recurse once the image is ready.
+    if (!imageElement.complete) {
+        console.warn('Image not complete, waiting...');
+        return new Promise((resolve) => {
+            imageElement.onload = () => {
+                extractDominantColors(imageElement, colorCount).then(resolve);
+            };
+            imageElement.onerror = () => {
+                console.error('Image failed to load for color extraction');
+                resolve(FALLBACK_PALETTE_NORMAL);
+            };
+        });
+    }
+
+    try {
+        const result = getImageDataForElement(imageElement);
+        if (!result) return FALLBACK_PALETTE_NORMAL;
+        if (result.tainted) return FALLBACK_PALETTE_CORS_TAINTED;
+
+        const colors = sampleColorsFromPixels(result.imageData.data);
+        if (colors.length === 0) {
+            console.log('No suitable colors found, using fallback');
+            return FALLBACK_PALETTE_NORMAL;
         }
-    });
+
+        const dominantColors = findDominantColors(colors, colorCount);
+        console.log('Extracted colors:', dominantColors);
+        return dominantColors;
+    } catch (error) {
+        console.error('Error extracting colors:', error);
+        return FALLBACK_PALETTE_NORMAL;
+    }
 }
 
 // Convert RGB to HSL

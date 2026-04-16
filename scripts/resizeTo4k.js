@@ -13,6 +13,7 @@ const projectRoot = path.resolve(__dirname, '..');
 process.chdir(projectRoot);
 
 const { loadConfig } = require('../src/config');
+const { resolveDbPath, resolvePhotoDir } = require('../src/lib/paths');
 const DatabaseManager = require('../src/database/db');
 const { resizeImage } = require('../src/indexer/resizePipeline');
 
@@ -23,7 +24,7 @@ const { resizeImage } = require('../src/indexer/resizePipeline');
  * @returns {Promise<{processed: number, errors: number}>}
  */
 async function runResize(db, config) {
-    const photoDir = path.resolve(config.photoDirectory);
+    const photoDir = resolvePhotoDir(config);
     const toResize = db.getImagesNotResized(photoDir);
 
     if (toResize.length === 0) {
@@ -64,8 +65,8 @@ async function runResize(db, config) {
 
 async function main() {
     const config = loadConfig();
-    const dbPath = path.resolve(__dirname, '..', config.databasePath);
-    const photoDir = path.resolve(config.photoDirectory);
+    const dbPath = resolveDbPath(config);
+    const photoDir = resolvePhotoDir(config);
 
     console.log('4K Resize: processing images not yet in resized/');
     console.log('Photo directory:', photoDir);

@@ -1,3 +1,5 @@
+const { apiCall, imageServeUrl, newCacheBuster, connectSSE } = window.PictureFrame;
+
 const els = {
   statusText: document.getElementById('statusText'),
   thumb: document.getElementById('thumb'),
@@ -27,15 +29,6 @@ function setStatus(text, kind) {
   if (kind) els.statusText.classList.add(kind);
 }
 
-async function apiCall(endpoint, options = {}) {
-  const response = await fetch(`/api${endpoint}`, options);
-  if (!response.ok) {
-    const txt = await response.text().catch(() => '');
-    throw new Error(`API ${endpoint} failed: ${response.status} ${response.statusText} ${txt}`);
-  }
-  return await response.json();
-}
-
 function updateNowPlaying() {
   const img = state.currentImage;
   if (!img) {
@@ -47,7 +40,7 @@ function updateNowPlaying() {
 
   els.filename.textContent = img.filename || `Image ${img.id}`;
   els.counter.textContent = `ID: ${img.id}`;
-  els.thumb.src = `/api/image/${img.id}/serve`;
+  els.thumb.src = imageServeUrl(img.id);
 
   if (img.isFavorite) {
     els.favoriteBtn.classList.add('on');
@@ -102,27 +95,14 @@ function setBusy(busy) {
 function connectToSSE() {
   if (state.eventSource) state.eventSource.close();
 
-  setStatus('Connecting…', 'warn');
-  const es = new EventSource('/api/events');
-  state.eventSource = es;
-
-  es.onopen = () => {
-    setStatus('Connected', 'ok');
-  };
-
-  es.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data);
-      handleMessage(msg);
-    } catch (e) {
-      console.error('Bad SSE message:', e);
+  state.eventSource = connectSSE('/api/events', {
+    onMessage: handleMessage,
+    onStatusChange: (status) => {
+      if (status === 'connecting') setStatus('Connecting…', 'warn');
+      else if (status === 'open') setStatus('Connected', 'ok');
+      else if (status === 'error') setStatus('Disconnected (reconnecting)…', 'err');
     }
-  };
-
-  es.onerror = () => {
-    setStatus('Disconnected (reconnecting)…', 'err');
-    // EventSource will retry automatically; we keep status updated.
-  };
+  });
 }
 
 function handleMessage(msg) {
@@ -157,8 +137,9 @@ function handleMessage(msg) {
 
     case 'rotate':
       if (state.currentImage && state.currentImage.id === msg.imageId) {
-        const t = msg.cacheBuster || (Date.now() + Math.random());
-        els.thumb.src = `/api/image/${msg.imageId}/serve?t=${t}&nocache=1`;
+        els.thumb.src = imageServeUrl(msg.imageId, {
+          cacheBuster: msg.cacheBuster || newCacheBuster()
+        });
       }
       break;
   }
@@ -217,8 +198,7 @@ async function rotate(direction) {
     const endpoint = direction === 'left' ? 'rotate-left' : 'rotate-right';
     await apiCall(`/image/${state.currentImage.id}/${endpoint}`, { method: 'POST' });
     // Immediately bust cache for the remote preview; TV will update via SSE rotate event.
-    const t = Date.now() + Math.random();
-    els.thumb.src = `/api/image/${state.currentImage.id}/serve?t=${t}&nocache=1`;
+    els.thumb.src = imageServeUrl(state.currentImage.id, { cacheBuster: newCacheBuster() });
   } finally {
     setBusy(false);
   }

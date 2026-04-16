@@ -1,5 +1,31 @@
+const { imageMessage, slideshowStateMessage } = require('../lib/messages');
+
+// Allow-lists for settings. Exposed (via static on the class) so callers
+// can inspect them for UI/validation purposes without duplicating strings.
+const VALID_MODES = Object.freeze(['sequential', 'random', 'smart']);
+const VALID_ORDERS = Object.freeze(['date', 'filename', 'thisday']);
+
+/**
+ * Error type thrown by SlideshowEngine.updateSettings when input fails
+ * validation. Routes map this to HTTP 400.
+ */
+class SettingsValidationError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'SettingsValidationError';
+    }
+}
+
 class SlideshowEngine {
-    constructor(db, config = {}) {
+    /**
+     * @param {object} db - DatabaseManager
+     * @param {object} config - App config
+     * @param {object} [deps]
+     * @param {(msg: object) => void} [deps.broadcast] - Broadcast a pre-built
+     *   SSE message. If omitted, broadcasts are silently dropped (useful for
+     *   tests and one-shot scripts like indexing).
+     */
+    constructor(db, config = {}, deps = {}) {
         this.db = db;
         this.currentIndex = 0;
         this.currentImageId = null;
@@ -22,6 +48,15 @@ class SlideshowEngine {
         this.smartWeightsTimestamp = 0;
         // Number of images to preload (from config, default 15)
         this.preloadCount = (config.slideshow && config.slideshow.numberOfImagesToPreload) || 15;
+
+        // Timer state (previously lived in server.js) -------------------
+        this.broadcast = deps.broadcast || (() => {});
+        this.isPlaying = false;
+        this.tickTimer = null;
+        // Monotonic token to invalidate already-queued setTimeout callbacks
+        // when the schedule changes (interval update, manual nav, pause).
+        this.tickToken = 0;
+        this.advanceInProgress = false;
     }
 
     initialize() {
@@ -287,27 +322,14 @@ class SlideshowEngine {
         return 0;
     }
 
+    /**
+     * Delegates to the canonical db.formatImage so the DB layer is the
+     * single source of truth for camelCase field shape. Kept on the
+     * engine because many call sites (routes, tests) already hold an
+     * engine reference rather than a db reference.
+     */
     formatImage(image) {
-        return {
-            id: image.id,
-            filepath: image.filepath,
-            filename: image.filename,
-            dateTaken: image.date_taken,
-            dateAdded: image.date_added,
-            latitude: image.latitude,
-            longitude: image.longitude,
-            locationCity: image.location_city,
-            locationCountry: image.location_country,
-            width: image.width,
-            height: image.height,
-            orientation: image.orientation,
-            rotation: image.rotation || 0,
-            orientation: image.orientation,
-            cameraModel: image.camera_model,
-            cameraMake: image.camera_make,
-            isFavorite: image.is_favorite === 1,
-            tags: image.tags ? JSON.parse(image.tags) : []
-        };
+        return this.db.formatImage(image);
     }
 
     getSettings() {
@@ -320,29 +342,78 @@ class SlideshowEngine {
         };
     }
 
+    /**
+     * Validate a settings patch and return a normalized update object
+     * (with parsed integers and coerced booleans). Throws
+     * SettingsValidationError with a human-readable message on failure.
+     *
+     * Accepts the same shape as updateSettings — fields are optional.
+     */
+    static validateSettings(input) {
+        const normalized = {};
+
+        if (input.mode !== undefined) {
+            if (!VALID_MODES.includes(input.mode)) {
+                throw new SettingsValidationError(
+                    `Invalid mode. Must be one of: ${VALID_MODES.join(', ')}`
+                );
+            }
+            normalized.mode = input.mode;
+        }
+
+        if (input.order !== undefined) {
+            if (!VALID_ORDERS.includes(input.order)) {
+                throw new SettingsValidationError(
+                    `Invalid order. Must be one of: ${VALID_ORDERS.join(', ')}`
+                );
+            }
+            normalized.order = input.order;
+        }
+
+        if (input.interval !== undefined) {
+            const interval = parseInt(input.interval);
+            if (isNaN(interval) || interval < 1) {
+                throw new SettingsValidationError(
+                    'Invalid interval. Must be a positive number'
+                );
+            }
+            normalized.interval = interval;
+        }
+
+        if (input.favoritesOnly !== undefined) {
+            normalized.favoritesOnly = input.favoritesOnly === true || input.favoritesOnly === 'true';
+        }
+
+        return normalized;
+    }
+
     updateSettings(newSettings) {
+        // Validation is part of the engine's contract so callers (routes,
+        // future CLI, tests) all see the same rules.
+        const updates = SlideshowEngine.validateSettings(newSettings);
+
         let needsRefresh = false;
 
-        if (newSettings.mode !== undefined && newSettings.mode !== this.settings.mode) {
-            this.settings.mode = newSettings.mode;
-            this.db.setSetting('slideshow_mode', newSettings.mode);
+        if (updates.mode !== undefined && updates.mode !== this.settings.mode) {
+            this.settings.mode = updates.mode;
+            this.db.setSetting('slideshow_mode', updates.mode);
             needsRefresh = true;
         }
 
-        if (newSettings.order !== undefined && newSettings.order !== this.settings.order) {
-            this.settings.order = newSettings.order;
-            this.db.setSetting('slideshow_order', newSettings.order);
+        if (updates.order !== undefined && updates.order !== this.settings.order) {
+            this.settings.order = updates.order;
+            this.db.setSetting('slideshow_order', updates.order);
             needsRefresh = true;
         }
 
-        if (newSettings.interval !== undefined) {
-            this.settings.interval = parseInt(newSettings.interval);
-            this.db.setSetting('slideshow_interval', this.settings.interval);
+        if (updates.interval !== undefined) {
+            this.settings.interval = updates.interval;
+            this.db.setSetting('slideshow_interval', updates.interval);
         }
 
-        if (newSettings.favoritesOnly !== undefined && newSettings.favoritesOnly !== this.settings.favoritesOnly) {
-            this.settings.favoritesOnly = newSettings.favoritesOnly;
-            this.db.setSetting('filter_favorites_only', newSettings.favoritesOnly ? '1' : '0');
+        if (updates.favoritesOnly !== undefined && updates.favoritesOnly !== this.settings.favoritesOnly) {
+            this.settings.favoritesOnly = updates.favoritesOnly;
+            this.db.setSetting('filter_favorites_only', updates.favoritesOnly ? '1' : '0');
             needsRefresh = true;
         }
 
@@ -362,7 +433,7 @@ class SlideshowEngine {
         const preloadCount = count !== null ? count : this.preloadCount;
         // Get next N images for preloading
         const preload = [];
-        
+
         for (let i = 1; i <= preloadCount; i++) {
             const nextIndex = (this.currentIndex + i) % this.imageList.length;
             if (nextIndex < this.imageList.length && this.imageList[nextIndex]) {
@@ -372,8 +443,121 @@ class SlideshowEngine {
 
         return preload;
     }
+
+    // ---- Timer / playback control (moved from server.js) -------------
+
+    /**
+     * Broadcast the current image bundle (image + preload + settings + isPlaying).
+     * Internal helper — used after advancing, on delete, on SSE open, etc.
+     */
+    broadcastCurrentImage(image) {
+        if (!image) return;
+        this.broadcast(imageMessage({
+            image,
+            preload: this.getPreloadImages(),
+            settings: this.getSettings(),
+            isPlaying: this.isPlaying
+        }));
+    }
+
+    _clearTickTimer() {
+        if (this.tickTimer) {
+            clearTimeout(this.tickTimer);
+            this.tickTimer = null;
+        }
+    }
+
+    _scheduleNextTick() {
+        if (!this.isPlaying) return;
+        this._clearTickTimer();
+        const myToken = ++this.tickToken;
+        const intervalSec = this.settings.interval || 10;
+        this.tickTimer = setTimeout(async () => {
+            // Stale tick (interval changed, paused, manual nav)? No-op.
+            if (myToken !== this.tickToken) return;
+            await this.advance('next', 'timer');
+            this._scheduleNextTick();
+        }, intervalSec * 1000);
+    }
+
+    /**
+     * Advance the slideshow (next/previous). Handles reentry guard,
+     * broadcasts the resulting image, and reschedules the auto-advance
+     * timer if we're playing and this advance came from a manual action.
+     *
+     * @param {'next'|'previous'} direction
+     * @param {string} [source] - For logging only.
+     * @returns {Promise<object|null>} Formatted current image, or null.
+     */
+    async advance(direction, source = 'unknown') {
+        if (this.advanceInProgress) return null;
+        this.advanceInProgress = true;
+        try {
+            let image = null;
+            if (direction === 'next') image = this.getNextImage();
+            else if (direction === 'previous') image = this.getPreviousImage();
+            if (image) this.broadcastCurrentImage(image);
+
+            // Manual navigation resets the auto-advance timer.
+            if (this.isPlaying && source !== 'timer') {
+                this._scheduleNextTick();
+            }
+            return image;
+        } catch (error) {
+            console.error(`Error advancing slideshow (${direction}, ${source}):`, error);
+            return null;
+        } finally {
+            this.advanceInProgress = false;
+        }
+    }
+
+    /**
+     * Start the auto-advance timer and broadcast the new play state.
+     * No-op if already playing.
+     */
+    play() {
+        if (this.isPlaying) return;
+        this.isPlaying = true;
+        this._scheduleNextTick();
+        this.broadcast(slideshowStateMessage(true));
+        console.log(`Server-side slideshow started (${this.settings.interval || 10}s interval)`);
+    }
+
+    /**
+     * Stop the auto-advance timer and broadcast the new play state.
+     */
+    pause() {
+        this._clearTickTimer();
+        // Bump token so any in-flight tick callbacks become no-ops.
+        this.tickToken++;
+        this.isPlaying = false;
+        this.broadcast(slideshowStateMessage(false));
+        console.log('Server-side slideshow stopped');
+    }
+
+    /**
+     * If the interval was changed while playing, reschedule immediately
+     * so the new interval takes effect on the next tick (not after the
+     * old one finishes).
+     */
+    updateIntervalIfPlaying() {
+        if (this.isPlaying) this._scheduleNextTick();
+    }
+
+    /**
+     * Stop the timer during shutdown. Does not broadcast (clients are
+     * disconnecting anyway).
+     */
+    stopForShutdown() {
+        this._clearTickTimer();
+        this.tickToken++;
+        this.isPlaying = false;
+    }
 }
 
 module.exports = SlideshowEngine;
+module.exports.SettingsValidationError = SettingsValidationError;
+module.exports.VALID_MODES = VALID_MODES;
+module.exports.VALID_ORDERS = VALID_ORDERS;
 
 

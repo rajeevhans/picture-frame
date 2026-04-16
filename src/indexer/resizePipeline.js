@@ -5,9 +5,9 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const sharp = require('sharp');
-const { spawn } = require('child_process');
 const os = require('os');
+const sharp = require('sharp');
+const { isHeif, convertHeifToFile } = require('../lib/heif');
 
 const RESIZED_SUBDIR = 'resized';
 
@@ -44,26 +44,6 @@ function getOutputPath(photoDirectory, originalPath, metadata, ext) {
         outputPath = path.join(outputDir, `${baseName}_${hash}_${counter}${ext}`);
     }
     return outputPath;
-}
-
-function isHeif(ext) {
-    return ['.heic', '.heif'].includes(ext.toLowerCase());
-}
-
-function heifToJpegSync(heifPath, outputPath, quality) {
-    return new Promise((resolve, reject) => {
-        const q = quality !== undefined ? quality.toString() : '90';
-        const proc = spawn('heif-convert', ['-q', q, heifPath, outputPath], {
-            stdio: ['ignore', 'pipe', 'pipe']
-        });
-        let stderr = '';
-        proc.stderr.on('data', (d) => { stderr += d.toString(); });
-        proc.on('close', (code) => {
-            if (code === 0) resolve();
-            else reject(new Error(`heif-convert failed: ${stderr}`));
-        });
-        proc.on('error', reject);
-    });
 }
 
 async function resizeWithSharp(inputPath, outputPath, config) {
@@ -118,15 +98,13 @@ async function resizeImage(originalPath, metadata, config) {
     }
 
     let tempHeifJpeg = null;
-    let inputForSharp = originalPath;
 
     if (isHeifFile) {
         try {
             await resizeWithSharp(originalPath, outputPath, config);
         } catch (sharpErr) {
             tempHeifJpeg = path.join(os.tmpdir(), `heif_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`);
-            await heifToJpegSync(originalPath, tempHeifJpeg, config.resize?.quality);
-            inputForSharp = tempHeifJpeg;
+            await convertHeifToFile(originalPath, tempHeifJpeg, config.resize?.quality);
             await resizeWithSharp(tempHeifJpeg, outputPath, config);
         }
     } else {

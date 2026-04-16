@@ -1,9 +1,12 @@
 const express = require('express');
 const { spawn } = require('child_process');
 const path = require('path');
+const { PROJECT_ROOT } = require('../lib/paths');
+const { imageMessage, settingsMessage } = require('../lib/messages');
+const { SettingsValidationError } = require('../slideshow/engine');
 const router = express.Router();
 
-function createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServerSlideshowInterval) {
+function createSettingsRoutes(db, slideshowEngine, broadcastMessage, updateServerSlideshowInterval) {
     // Get current settings
     router.get('/', (req, res) => {
         try {
@@ -17,62 +20,46 @@ function createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServer
 
     // Update settings
     router.post('/', (req, res) => {
+        let newSettings;
         try {
-            const updates = {};
-
-            if (req.body.mode !== undefined) {
-                if (!['sequential', 'random', 'smart'].includes(req.body.mode)) {
-                    return res.status(400).json({ error: 'Invalid mode. Must be sequential, random, or smart' });
-                }
-                updates.mode = req.body.mode;
+            // Engine performs validation and throws SettingsValidationError
+            // on bad input — caught below and mapped to a 400.
+            newSettings = slideshowEngine.updateSettings(req.body);
+        } catch (error) {
+            if (error instanceof SettingsValidationError) {
+                return res.status(400).json({ error: error.message });
             }
+            console.error('Error updating settings:', error);
+            return res.status(500).json({ error: 'Internal server error' });
+        }
 
-            if (req.body.order !== undefined) {
-                if (!['date', 'filename', 'thisday'].includes(req.body.order)) {
-                    return res.status(400).json({ error: 'Invalid order. Must be date, filename, or thisday' });
-                }
-                updates.order = req.body.order;
-            }
-
-            if (req.body.interval !== undefined) {
-                const interval = parseInt(req.body.interval);
-                if (isNaN(interval) || interval < 1) {
-                    return res.status(400).json({ error: 'Invalid interval. Must be a positive number' });
-                }
-                updates.interval = interval;
-            }
-
-            if (req.body.favoritesOnly !== undefined) {
-                updates.favoritesOnly = req.body.favoritesOnly === true || req.body.favoritesOnly === 'true';
-            }
-
-            const newSettings = slideshowEngine.updateSettings(updates);
-
+        try {
             // Update server-side slideshow interval if it changed
-            if (updates.interval !== undefined && updateServerSlideshowInterval) {
+            if (req.body.interval !== undefined && updateServerSlideshowInterval) {
                 updateServerSlideshowInterval();
             }
 
+            // Only used below to decide what to broadcast; mirrors the
+            // fields actually changed by updateSettings.
+            const updates = req.body || {};
+
             // Broadcast settings update to all clients
-            if (broadcastUpdate) {
+            if (broadcastMessage) {
                 // If settings changed that affect the current image (like favorites filter),
                 // also send the current image
                 if (updates.favoritesOnly !== undefined || updates.mode !== undefined || updates.order !== undefined) {
                     const image = slideshowEngine.getCurrentImage();
                     if (image) {
-                        const preload = slideshowEngine.getPreloadImages();
                         // Note: do not force isPlaying here; clients keep their current play state
-                        broadcastUpdate('image', {
+                        broadcastMessage(imageMessage({
                             image,
-                            preload,
+                            preload: slideshowEngine.getPreloadImages(),
                             settings: newSettings
-                        });
+                        }));
                     }
                 } else {
                     // Just broadcast settings change
-                    broadcastUpdate('settings', {
-                        settings: newSettings
-                    });
+                    broadcastMessage(settingsMessage(newSettings));
                 }
             }
 
@@ -86,17 +73,6 @@ function createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServer
         }
     });
 
-    // Get statistics
-    router.get('/stats', (req, res) => {
-        try {
-            const stats = db.getStats();
-            res.json(stats);
-        } catch (error) {
-            console.error('Error getting stats:', error);
-            res.status(500).json({ error: 'Internal server error' });
-        }
-    });
-
     // Restart the photo frame process
     router.post('/restart', (req, res) => {
         try {
@@ -105,11 +81,11 @@ function createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServer
             // Delay restart to allow response to be sent
             setTimeout(() => {
                 console.log('Restart requested, spawning replacement process...');
-                const serverPath = path.resolve(__dirname, '..', 'server.js');
+                const serverPath = path.join(PROJECT_ROOT, 'src', 'server.js');
                 const child = spawn(process.argv[0], [serverPath, ...process.argv.slice(2)], {
                     stdio: 'inherit',
                     detached: true,
-                    cwd: path.resolve(__dirname, '..', '..')
+                    cwd: PROJECT_ROOT
                 });
                 child.unref();
                 process.exit(0);
