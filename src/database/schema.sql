@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS images (
     longitude REAL,
     location_city TEXT,
     location_country TEXT,
+    geocode_attempted INTEGER DEFAULT 0,
     width INTEGER,
     height INTEGER,
     orientation INTEGER DEFAULT 1,

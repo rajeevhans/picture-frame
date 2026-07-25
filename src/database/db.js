@@ -87,7 +87,23 @@ class DatabaseManager {
         const schemaPath = path.join(__dirname, 'schema.sql');
         const schema = fs.readFileSync(schemaPath, 'utf8');
         this.db.exec(schema);
+        this.migrate();
         console.log('Database initialized successfully');
+    }
+
+    /**
+     * Idempotent, additive migrations for databases created before a column
+     * existed. CREATE TABLE IF NOT EXISTS never alters an existing table, so
+     * new columns are added here.
+     */
+    migrate() {
+        const cols = this.db.prepare('PRAGMA table_info(images)').all().map(c => c.name);
+        if (!cols.includes('geocode_attempted')) {
+            this.db.exec('ALTER TABLE images ADD COLUMN geocode_attempted INTEGER DEFAULT 0');
+            // Rows that already have a resolved city were effectively attempted.
+            this.db.exec('UPDATE images SET geocode_attempted = 1 WHERE location_city IS NOT NULL');
+            console.log('Migration: added geocode_attempted column');
+        }
     }
 
     // Image operations
@@ -363,14 +379,22 @@ class DatabaseManager {
     // Location operations
     getImagesNeedingLocation(limit = 10) {
         const stmt = this.db.prepare(`
-            SELECT * FROM images 
-            WHERE is_deleted = 0 
-            AND latitude IS NOT NULL 
+            SELECT * FROM images
+            WHERE latitude IS NOT NULL
             AND longitude IS NOT NULL
-            AND location_city IS NULL
+            AND geocode_attempted = 0
             LIMIT ?
         `);
         return stmt.all(limit);
+    }
+
+    /**
+     * Mark an image as having had a reverse-geocode attempt (success or not)
+     * so it is not re-queried on every restart.
+     */
+    markGeocodeAttempted(id) {
+        const stmt = this.db.prepare('UPDATE images SET geocode_attempted = 1, updated_at = ? WHERE id = ?');
+        return stmt.run(Date.now(), id);
     }
 
     /**

@@ -327,7 +327,13 @@ async function startServer() {
             await geoService.batchLookup(imagesToLookup, (id, location) => {
                 return db.updateImage(id, location);
             });
-            
+
+            // Mark the whole batch as attempted (success OR no-result) so
+            // un-geocodable photos are not re-queried on every restart.
+            for (const img of imagesToLookup) {
+                db.markGeocodeAttempted(img.id);
+            }
+
             // Check if more images need processing
             const stillRemaining = db.getImagesNeedingLocation(1).length;
             if (stillRemaining > 0) {
