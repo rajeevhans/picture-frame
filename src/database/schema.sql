@@ -38,12 +38,4 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at INTEGER NOT NULL
 );
 
--- Insert default settings
-INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES 
-    ('slideshow_mode', 'sequential', strftime('%s', 'now')),
-    ('slideshow_interval', '10', strftime('%s', 'now')),
-    ('slideshow_order', 'date', strftime('%s', 'now')),
-    ('filter_favorites_only', '0', strftime('%s', 'now')),
-    ('current_image_id', '0', strftime('%s', 'now'));
-
 

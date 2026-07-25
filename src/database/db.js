@@ -316,6 +316,19 @@ class DatabaseManager {
         return stmt.run(key, value.toString(), Date.now());
     }
 
+    /**
+     * Insert a default setting only if the key does not already exist. Used
+     * on first run to seed slideshow defaults from config; the DB is
+     * authoritative thereafter (setSetting overwrites, seedSetting does not).
+     */
+    seedSetting(key, value) {
+        const stmt = this.db.prepare(`
+            INSERT OR IGNORE INTO settings (key, value, updated_at)
+            VALUES (?, ?, ?)
+        `);
+        return stmt.run(key, String(value), Date.now());
+    }
+
     getAllSettings() {
         const stmt = this.db.prepare('SELECT key, value FROM settings');
         const rows = stmt.all();

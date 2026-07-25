@@ -27,6 +27,7 @@ class SlideshowEngine {
      */
     constructor(db, config = {}, deps = {}) {
         this.db = db;
+        this.config = config || {};
         this.currentIndex = 0;
         this.currentImageId = null;
         this.imageList = [];
@@ -64,6 +65,16 @@ class SlideshowEngine {
     }
 
     initialize() {
+        // First-run seed: apply config slideshow defaults if the settings
+        // table is empty. seedSetting is INSERT OR IGNORE, so this is a no-op
+        // on an existing DB — the DB stays authoritative.
+        const ss = this.config.slideshow || {};
+        this.db.seedSetting('slideshow_mode', ss.defaultMode || 'sequential');
+        this.db.seedSetting('slideshow_interval', ss.defaultInterval != null ? ss.defaultInterval : 10);
+        this.db.seedSetting('slideshow_order', ss.defaultOrder || 'date');
+        this.db.seedSetting('filter_favorites_only', '0');
+        this.db.seedSetting('current_image_id', '0');
+
         // Load settings from database
         const savedSettings = this.db.getAllSettings();
         if (savedSettings.slideshow_mode) {
