@@ -2,7 +2,7 @@ const chokidar = require('chokidar');
 const path = require('path');
 
 class FileWatcher {
-    constructor(db, scanner, config) {
+    constructor(db, scanner, config, deps = {}) {
         this.db = db;
         this.scanner = scanner;
         this.config = config;
@@ -10,6 +10,9 @@ class FileWatcher {
         this.queue = [];
         this.processing = false;
         this.debounceTimers = new Map();
+        // Called once after a batch of file events has been fully processed,
+        // so the running slideshow picks up added/removed images. Optional.
+        this.onChange = deps.onChange || null;
     }
 
     start(directoryPath) {
@@ -102,13 +105,25 @@ class FileWatcher {
         }
 
         this.processing = true;
+        let changed = false;
 
         while (this.queue.length > 0) {
             const task = this.queue.shift();
-            await this.processTask(task);
+            const didChange = await this.processTask(task);
+            if (didChange) changed = true;
         }
 
         this.processing = false;
+
+        // One refresh per drained batch (not per file) so a bulk import
+        // refreshes the slideshow once.
+        if (changed && this.onChange) {
+            try {
+                this.onChange();
+            } catch (error) {
+                console.error('Watcher onChange callback failed:', error.message);
+            }
+        }
     }
 
     async processTask(task) {
@@ -117,14 +132,15 @@ class FileWatcher {
                 case 'add':
                 case 'change':
                     await this.scanner.indexSingleFile(task.filePath);
-                    break;
+                    return true;
                 case 'unlink':
                     this.scanner.removeFromIndex(task.filePath);
-                    break;
+                    return true;
             }
         } catch (error) {
             console.error(`Error processing task for ${task.filePath}:`, error.message);
         }
+        return false;
     }
 
     stop() {
