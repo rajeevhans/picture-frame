@@ -434,6 +434,11 @@ class SlideshowEngine {
         // Get next N images for preloading
         const preload = [];
 
+        // Empty list → nothing to preload (also avoids `% 0` producing NaN)
+        if (this.imageList.length === 0) {
+            return preload;
+        }
+
         for (let i = 1; i <= preloadCount; i++) {
             const nextIndex = (this.currentIndex + i) % this.imageList.length;
             if (nextIndex < this.imageList.length && this.imageList[nextIndex]) {
