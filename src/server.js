@@ -241,24 +241,29 @@ async function startServer() {
         console.log(`Database contains ${imageCount} images. Use --index to force re-indexing.`);
     }
 
-    // Start file watcher
+    // Start file watcher (only when there is a real photo dir to watch)
+    let watcher = null;
     if (fs.existsSync(photoDir) && !forceIndex) {
-        const watcher = new FileWatcher(db, scanner, config);
+        watcher = new FileWatcher(db, scanner, config, {
+            onChange: () => slideshowEngine.refreshImageList()
+        });
         watcher.start(photoDir);
-
-        // Graceful shutdown (single handler, registered for both signals)
-        const shutdown = () => {
-            console.log('\nShutting down...');
-            slideshowEngine.stopForShutdown();
-            watcher.stop();
-            sseClients.forEach(client => client.end());
-            sseClients.clear();
-            db.close();
-            process.exit(0);
-        };
-        process.on('SIGINT', shutdown);
-        process.on('SIGTERM', shutdown);
     }
+
+    // Graceful shutdown — registered unconditionally so dev mode (no photo
+    // dir) also closes the DB cleanly. Guards each subsystem in case it was
+    // never started.
+    const shutdown = () => {
+        console.log('\nShutting down...');
+        slideshowEngine.stopForShutdown();
+        if (watcher) watcher.stop();
+        sseClients.forEach(client => client.end());
+        sseClients.clear();
+        db.close();
+        process.exit(0);
+    };
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
 
     // Start HTTP server
     app.listen(PORT, () => {
