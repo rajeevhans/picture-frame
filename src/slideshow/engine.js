@@ -46,6 +46,10 @@ class SlideshowEngine {
         // Cache for smart mode weights
         this.smartWeights = null;
         this.smartWeightsTimestamp = 0;
+        // Bumped whenever the image list changes so a stale weight array can
+        // never be indexed against a newer/shorter list.
+        this.listVersion = 0;
+        this.smartWeightsListVersion = -1;
         // Number of images to preload (from config, default 15)
         this.preloadCount = (config.slideshow && config.slideshow.numberOfImagesToPreload) || 15;
 
@@ -127,6 +131,10 @@ class SlideshowEngine {
         const validIds = new Set(this.imageList.map(img => img.id));
         this.backStack = this.backStack.filter(id => validIds.has(id));
         this.forwardStack = this.forwardStack.filter(id => validIds.has(id));
+
+        // Invalidate any cached smart weights — they were computed for the
+        // previous list and would index-mismatch the new one.
+        this.listVersion++;
     }
 
     setCurrentImageById(imageId) {
@@ -267,8 +275,9 @@ class SlideshowEngine {
     selectSmartImage() {
         // Cache weights for 5 seconds to avoid recalculating on every call
         const now = Date.now();
-        const cacheValid = (now - this.smartWeightsTimestamp) < 5000;
-        
+        const cacheValid = (now - this.smartWeightsTimestamp) < 5000
+            && this.smartWeightsListVersion === this.listVersion;
+
         if (!this.smartWeights || !cacheValid) {
             // Smart selection: weight by favorites, recency, and "this day"
             const today = new Date();
@@ -302,8 +311,9 @@ class SlideshowEngine {
 
                 return weight;
             });
-            
+
             this.smartWeightsTimestamp = now;
+            this.smartWeightsListVersion = this.listVersion;
         }
 
         // Calculate total weight
@@ -419,9 +429,8 @@ class SlideshowEngine {
 
         if (needsRefresh) {
             this.refreshImageList();
-            // Clear smart mode cache when settings change
-            this.smartWeights = null;
-            this.smartWeightsTimestamp = 0;
+            // refreshImageList() bumped listVersion, which invalidates the
+            // smart-weight cache on the next selectSmartImage() call.
             console.log('Slideshow settings updated and image list refreshed');
         }
 
