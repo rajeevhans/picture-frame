@@ -8,3 +8,4 @@ data/deleted/
 .DS_Store
 .env
 test_photos/
+.superpowers/
