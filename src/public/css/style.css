@@ -177,6 +177,7 @@ body.show-cursor {
     backdrop-filter: blur(10px);
     min-width: 300px;
     transition: opacity 0.3s ease;
+    z-index: 10;
 }
 
 .info-overlay.hidden {

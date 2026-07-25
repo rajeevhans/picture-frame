@@ -243,6 +243,97 @@ function createImageRoutes(db, slideshowEngine, ctx) {
         }
     });
 
+    // Toggle favorite on current image (convenience route for Stream Deck / external controllers)
+    router.post('/current/favorite', (req, res) => {
+        try {
+            const current = slideshowEngine.getCurrentImage();
+            if (!current) {
+                return res.status(404).json({ error: 'No current image' });
+            }
+            const imageId = current.id;
+            db.toggleFavorite(imageId);
+
+            const image = db.getImageById(imageId);
+
+            if (slideshowEngine.settings.favoritesOnly) {
+                slideshowEngine.refreshImageList();
+            }
+
+            if (broadcastMessage) {
+                broadcastMessage(favoriteMessage(imageId, image.is_favorite === 1));
+            }
+
+            res.json({
+                success: true,
+                imageId,
+                isFavorite: image.is_favorite === 1
+            });
+        } catch (error) {
+            console.error('Error toggling favorite on current image:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    // Delete current image (convenience route for Stream Deck / external controllers)
+    router.delete('/current', async (req, res) => {
+        try {
+            const current = slideshowEngine.getCurrentImage();
+            if (!current) {
+                return res.status(404).json({ error: 'No current image' });
+            }
+            const imageId = current.id;
+            const image = db.getImageById(imageId);
+
+            if (!image) {
+                return res.status(404).json({ error: 'Image not found' });
+            }
+
+            slideshowEngine.refreshImageList();
+            const nextImage = advanceSlideshow ? await advanceSlideshow('next') : slideshowEngine.getNextImage();
+
+            const response = {
+                success: true,
+                nextImage: nextImage || null
+            };
+
+            if (nextImage && broadcastCurrentImage) {
+                broadcastCurrentImage(nextImage);
+            }
+
+            res.json(response);
+
+            setImmediate(() => {
+                (async () => {
+                    try {
+                        const sourcePath = path.resolve(image.filepath);
+                        const destPath = await moveFileToDeleted(sourcePath);
+                        if (destPath) {
+                            console.log(`Moved ${image.filepath} to ${destPath}`);
+                        } else {
+                            console.log(`File not found: ${sourcePath}, removing from database only`);
+                        }
+                        db.hardDelete(imageId);
+                        slideshowEngine.refreshImageList();
+                    } catch (error) {
+                        console.error('Error in background deletion:', error);
+                        try {
+                            db.hardDelete(imageId);
+                            slideshowEngine.refreshImageList();
+                        } catch (dbError) {
+                            console.error('Error removing from database:', dbError);
+                        }
+                    }
+                })();
+            });
+        } catch (error) {
+            console.error('Error deleting current image:', error);
+            res.status(500).json({
+                error: 'Failed to delete image',
+                message: error.message
+            });
+        }
+    });
+
     // Toggle favorite
     router.post('/:id/favorite', (req, res) => {
         try {
