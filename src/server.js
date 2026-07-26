@@ -11,6 +11,7 @@ const FileWatcher = require('./indexer/watcher');
 const SlideshowEngine = require('./slideshow/engine');
 const GeolocationService = require('./services/geolocation');
 const ArtisticScoringService = require('./services/artisticScoring');
+const DuplicateDetectionService = require('./services/duplicateDetection');
 const createImageRoutes = require('./routes/images');
 const createSettingsRoutes = require('./routes/settings');
 const { createAuthMiddleware } = require('./middleware/auth');
@@ -73,6 +74,7 @@ function broadcastMessage(message) {
 // Initialize slideshow engine with broadcaster injected (engine owns the
 // auto-advance timer and emits its own state-change messages).
 const slideshowEngine = new SlideshowEngine(db, config, { broadcast: broadcastMessage });
+const duplicateService = new DuplicateDetectionService(db, config, { broadcast: broadcastMessage });
 
 // Check command line arguments
 const args = process.argv.slice(2);
@@ -101,6 +103,8 @@ app.use('/api/settings', createSettingsRoutes(
     broadcastMessage,
     () => slideshowEngine.updateIntervalIfPlaying()
 ));
+const createDuplicateRoutes = require('./routes/duplicates');
+app.use('/api/duplicates', createDuplicateRoutes(db, duplicateService, slideshowEngine, broadcastMessage));
 
 // Serve static files (frontend)
 app.use(express.static(path.join(__dirname, 'public')));

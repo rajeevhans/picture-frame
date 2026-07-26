@@ -633,5 +633,6 @@ function createImageRoutes(db, slideshowEngine, ctx) {
 }
 
 module.exports = createImageRoutes;
+module.exports.moveFileToDeleted = moveFileToDeleted;
 
 
