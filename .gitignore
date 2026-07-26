@@ -9,3 +9,6 @@ data/deleted/
 .env
 test_photos/
 .superpowers/
+
+# HEIF conversion cache and runtime data
+/data/

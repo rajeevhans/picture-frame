@@ -108,11 +108,41 @@ function libheifInstallHint() {
         : 'sudo apt-get install libheif-dev libde265-dev libx265-dev';
 }
 
+/**
+ * Convert a HEIF file to JPEG on disk, cached by a caller-supplied key.
+ * Returns the path to the cached JPEG. On a cache hit no conversion runs.
+ * The cache lives under data/heif-cache/ at the project root.
+ *
+ * @param {string} inputPath - Absolute path to the HEIF source.
+ * @param {string} cacheKey - Stable key (e.g. `${id}-${file_modified}`).
+ * @param {number} [quality=90] - JPEG quality (1-100).
+ * @returns {Promise<string>} Absolute path to the cached JPEG.
+ */
+async function getCachedJpegPath(inputPath, cacheKey, quality = DEFAULT_QUALITY) {
+    const cacheDir = path.join(__dirname, '..', '..', 'data', 'heif-cache');
+    await fs.promises.mkdir(cacheDir, { recursive: true });
+    // Sanitize the key for use as a filename.
+    const safeKey = String(cacheKey).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const cachedPath = path.join(cacheDir, `${safeKey}.jpg`);
+
+    try {
+        await fs.promises.access(cachedPath);
+        return cachedPath; // hit
+    } catch (_) {
+        // miss — convert into a temp file, then atomically rename into place
+        const tempPath = `${cachedPath}.tmp`;
+        await convertHeifToFile(inputPath, tempPath, quality);
+        await fs.promises.rename(tempPath, cachedPath);
+        return cachedPath;
+    }
+}
+
 module.exports = {
     HEIF_EXTENSIONS,
     DEFAULT_QUALITY,
     isHeif,
     convertHeifToFile,
     streamHeifAsJpeg,
+    getCachedJpegPath,
     libheifInstallHint
 };

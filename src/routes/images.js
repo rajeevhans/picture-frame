@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const ImageRotationService = require('../services/imageRotation');
-const { isHeif, streamHeifAsJpeg, libheifInstallHint } = require('../lib/heif');
+const { isHeif, streamHeifAsJpeg, getCachedJpegPath, libheifInstallHint } = require('../lib/heif');
 const { DELETED_DIR } = require('../lib/paths');
 const { favoriteMessage, rotateMessage } = require('../lib/messages');
 const router = express.Router();
@@ -96,7 +96,21 @@ async function sendImageOrHeif(req, res, { image, absolutePath, mode, context, n
 
     if (heifFile) {
         try {
-            await streamHeifAsJpeg(absolutePath, res, quality);
+            // Inline serving caches the converted JPEG on disk (keyed by
+            // id + file_modified, so the rotate mtime-bump invalidates it).
+            // Downloads use a distinct quality and are not cached.
+            if (!isDownload) {
+                const cacheKey = `${image.id}-${image.file_modified}`;
+                const cachedPath = await getCachedJpegPath(absolutePath, cacheKey, quality);
+                res.sendFile(cachedPath, (err) => {
+                    if (err && !res.headersSent) {
+                        console.error(`Error sending cached HEIF for ${context} ${image.filepath}:`, err.message);
+                        res.status(404).json({ error: 'Image file not found' });
+                    }
+                });
+            } else {
+                await streamHeifAsJpeg(absolutePath, res, quality);
+            }
         } catch (conversionError) {
             if (!res.headersSent) {
                 const installCmd = libheifInstallHint();
