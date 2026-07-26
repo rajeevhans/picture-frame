@@ -114,6 +114,31 @@ class DatabaseManager {
             console.log('Migration: added artistic_score_details column');
         }
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_artistic_score ON images(artistic_score)');
+        if (!cols.includes('content_hash')) {
+            this.db.exec('ALTER TABLE images ADD COLUMN content_hash TEXT');
+            console.log('Migration: added content_hash column');
+        }
+        if (!cols.includes('perceptual_hash')) {
+            this.db.exec('ALTER TABLE images ADD COLUMN perceptual_hash TEXT');
+            console.log('Migration: added perceptual_hash column');
+        }
+        if (!cols.includes('hash_computed')) {
+            this.db.exec('ALTER TABLE images ADD COLUMN hash_computed INTEGER DEFAULT 0');
+            console.log('Migration: added hash_computed column');
+        }
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_content_hash ON images(content_hash)');
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS duplicate_group_members (
+                group_id INTEGER NOT NULL,
+                image_id INTEGER NOT NULL,
+                group_type TEXT NOT NULL,
+                is_suggested_keeper INTEGER DEFAULT 0,
+                is_oversized INTEGER DEFAULT 0,
+                is_auto_eligible INTEGER DEFAULT 0,
+                PRIMARY KEY (group_id, image_id)
+            )
+        `);
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_dgm_image ON duplicate_group_members(image_id)');
     }
 
     // Image operations
@@ -457,6 +482,28 @@ class DatabaseManager {
             LIMIT ?
         `);
         return stmt.all(limit);
+    }
+
+    // Duplicate-detection: hash backfill
+    getImagesNeedingHash(limit = 100) {
+        const stmt = this.db.prepare('SELECT id, filepath FROM images WHERE hash_computed = 0 LIMIT ?');
+        return stmt.all(limit);
+    }
+
+    countImagesNeedingHash() {
+        return this.db.prepare('SELECT COUNT(*) AS c FROM images WHERE hash_computed = 0').get().c;
+    }
+
+    setHashes(id, contentHash, perceptualHash) {
+        const stmt = this.db.prepare(
+            'UPDATE images SET content_hash = ?, perceptual_hash = ?, hash_computed = 1, updated_at = ? WHERE id = ?'
+        );
+        return stmt.run(contentHash, perceptualHash, Date.now(), id);
+    }
+
+    resetHashComputed(id) {
+        const stmt = this.db.prepare('UPDATE images SET hash_computed = 0, updated_at = ? WHERE id = ?');
+        return stmt.run(Date.now(), id);
     }
 
     // Location operations

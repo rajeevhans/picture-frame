@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS images (
     camera_make TEXT,
     is_favorite INTEGER DEFAULT 0,
     tags TEXT,
+    content_hash TEXT,
+    perceptual_hash TEXT,
+    hash_computed INTEGER DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
@@ -29,6 +32,7 @@ CREATE INDEX IF NOT EXISTS idx_date_added ON images(date_added);
 CREATE INDEX IF NOT EXISTS idx_is_favorite ON images(is_favorite);
 CREATE INDEX IF NOT EXISTS idx_filename ON images(filename);
 CREATE INDEX IF NOT EXISTS idx_filepath ON images(filepath);
+CREATE INDEX IF NOT EXISTS idx_content_hash ON images(content_hash);
 
 -- Settings table
 CREATE TABLE IF NOT EXISTS settings (
@@ -37,4 +41,15 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at INTEGER NOT NULL
 );
 
+-- Duplicate detection: rebuilt on each scan
+CREATE TABLE IF NOT EXISTS duplicate_group_members (
+    group_id INTEGER NOT NULL,
+    image_id INTEGER NOT NULL,
+    group_type TEXT NOT NULL,          -- 'exact' | 'similar'
+    is_suggested_keeper INTEGER DEFAULT 0,
+    is_oversized INTEGER DEFAULT 0,
+    is_auto_eligible INTEGER DEFAULT 0, -- eligible for auto-resolve (exact, or similar within the strict threshold)
+    PRIMARY KEY (group_id, image_id)
+);
+CREATE INDEX IF NOT EXISTS idx_dgm_image ON duplicate_group_members(image_id);
 
