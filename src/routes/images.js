@@ -476,7 +476,10 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             // Update file modification time for cache busting
             const stats = fs.statSync(path.resolve(image.filepath));
             db.updateFileModified(imageId, stats.mtimeMs);
-            
+
+            // Bytes and perceptual hash both change on rotation — re-hash next scan.
+            db.resetHashComputed(imageId);
+
             console.log(`Rotated image ${imageId} left (counter-clockwise)`);
 
             // Tell all clients to reload this image with cache-busting
@@ -518,7 +521,10 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             // Update file modification time for cache busting
             const stats = fs.statSync(path.resolve(image.filepath));
             db.updateFileModified(imageId, stats.mtimeMs);
-            
+
+            // Bytes and perceptual hash both change on rotation — re-hash next scan.
+            db.resetHashComputed(imageId);
+
             console.log(`Rotated image ${imageId} right (clockwise)`);
 
             // Tell all clients to reload this image with cache-busting
