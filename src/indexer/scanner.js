@@ -1,7 +1,9 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const MetadataExtractor = require('./metadata');
 const { resizeImage, shouldExcludeFromScan, isResizedPath } = require('./resizePipeline');
+const { dHash } = require('../lib/perceptualHash');
 
 class DirectoryScanner {
     constructor(db, config) {
@@ -176,6 +178,10 @@ class DirectoryScanner {
         if (batch.length > 0) {
             try {
                 this.db.insertImagesBatch(batch);
+                for (const item of batch) {
+                    const row = this.db.getImageByPath(item.filepath);
+                    if (row) await this.hashImage(row.id, item.filepath);
+                }
                 // Delete originals only after successful insert
                 for (const originalPath of originalsToDelete) {
                     try {
@@ -206,6 +212,20 @@ class DirectoryScanner {
         }
     }
 
+    // Compute + store content/perceptual hashes for an already-inserted image.
+    async hashImage(id, resizedPath) {
+        try {
+            const bytes = await require('fs').promises.readFile(resizedPath);
+            const contentHash = crypto.createHash('sha256').update(bytes).digest('hex');
+            let perceptualHash = null;
+            try { perceptualHash = await dHash(resizedPath); } catch (_) { perceptualHash = null; }
+            this.db.setHashes(id, contentHash, perceptualHash);
+        } catch (err) {
+            // File unreadable — mark computed (nulls) so it doesn't block future scans.
+            this.db.setHashes(id, null, null);
+        }
+    }
+
     async indexSingleFile(filePath) {
         try {
             if (!this.metadataExtractor.isImageFile(filePath, this.config.fileExtensions)) {
@@ -231,6 +251,8 @@ class DirectoryScanner {
             if (resized.height != null) batchItem.height = resized.height;
 
             this.db.insertImage(batchItem);
+            const insertedSingle = this.db.getImageByPath(resized.outputPath);
+            if (insertedSingle) await this.hashImage(insertedSingle.id, resized.outputPath);
             if (fs.existsSync(filePath)) {
                 fs.unlinkSync(filePath);
             }
