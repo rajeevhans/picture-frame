@@ -181,7 +181,11 @@ function handleSSEMessage(data) {
                 tempImg.src = newImageUrl;
             }
             break;
-            
+
+        case 'duplicateScan':
+            if (window.PictureFrameDuplicates) window.PictureFrameDuplicates.onScanEvent(data);
+            break;
+
         default:
             console.log('Unknown SSE message type:', data.type);
     }
@@ -1399,6 +1403,7 @@ function toggleInfo() {
 function openSettings() {
     elements.settingsPanel.classList.remove('hidden');
     loadStats();
+    if (window.PictureFrameDuplicates) window.PictureFrameDuplicates.init();
 }
 
 function closeSettings() {

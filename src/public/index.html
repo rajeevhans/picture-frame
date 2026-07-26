@@ -214,6 +214,22 @@
                 </div>
             </div>
 
+            <div class="settings-group duplicates">
+                <h3>Duplicates</h3>
+                <button id="dupScanBtn" class="btn">Scan library for duplicates</button>
+                <div id="dupProgress" class="dup-progress hidden">
+                    <span id="dupPhase">idle</span>
+                    <progress id="dupBar" value="0" max="100"></progress>
+                    <span id="dupCounts"></span>
+                </div>
+                <div id="dupSummary" class="dup-summary"></div>
+                <div class="dup-actions">
+                    <button id="dupAutoExact" class="btn">Auto-resolve exact duplicates</button>
+                    <button id="dupAutoSimilar" class="btn btn-warn">Auto-resolve similar…</button>
+                </div>
+                <div id="dupGroups" class="dup-groups"></div>
+            </div>
+
             <div class="settings-group system">
                 <h3>System</h3>
                 <p class="system-text">Restart the photo frame to apply system changes or clear memory.</p>
@@ -237,6 +253,7 @@
     <div id="preloadContainer" style="display: none;"></div>
 
     <script src="/js/shared.js"></script>
+    <script src="/js/duplicates.js"></script>
     <script src="/js/app.js"></script>
 </body>
 </html>
