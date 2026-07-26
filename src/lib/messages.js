@@ -37,10 +37,15 @@ function rotateMessage(imageId, cacheBuster) {
     return { type: 'rotate', imageId, cacheBuster };
 }
 
+function duplicateScanMessage(state) {
+    return { type: 'duplicateScan', ...state };
+}
+
 module.exports = {
     imageMessage,
     favoriteMessage,
     settingsMessage,
     slideshowStateMessage,
-    rotateMessage
+    rotateMessage,
+    duplicateScanMessage
 };
