@@ -1,6 +1,7 @@
 const express = require('express');
 const { imageMessage, settingsMessage } = require('../lib/messages');
 const { SettingsValidationError } = require('../slideshow/engine');
+const logger = require('../logger');
 const router = express.Router();
 
 /**
@@ -30,9 +31,25 @@ function createSettingsRoutes(db, slideshowEngine, broadcastMessage, updateServe
     router.post('/', (req, res) => {
         let newSettings;
         try {
-            // Engine performs validation and throws SettingsValidationError
-            // on bad input — caught below and mapped to a 400.
-            newSettings = slideshowEngine.updateSettings(req.body);
+            // Custom filter SQL isn't part of the engine's settings schema,
+            // so it gets its own validation here before being merged into
+            // the patch handed to the engine (which validates mode/order/
+            // interval/favoritesOnly and throws SettingsValidationError on
+            // bad input — caught below and mapped to a 400).
+            let filterSql;
+            if (req.body.filterSql !== undefined) {
+                filterSql = typeof req.body.filterSql === 'string' ? req.body.filterSql.trim() : '';
+                const validation = db.validateFilterQuery(filterSql);
+                if (!validation.valid) {
+                    logger.debug('Filter SQL validation failed', { filterSql, error: validation.error });
+                    return res.status(400).json({ error: validation.error || 'Invalid filter SQL' });
+                }
+            }
+
+            const patch = filterSql !== undefined ? { ...req.body, filterSql } : req.body;
+            logger.debug('Settings update', { updates: patch });
+
+            newSettings = slideshowEngine.updateSettings(patch);
         } catch (error) {
             if (error instanceof SettingsValidationError) {
                 return res.status(400).json({ error: error.message });
@@ -55,7 +72,7 @@ function createSettingsRoutes(db, slideshowEngine, broadcastMessage, updateServe
             if (broadcastMessage) {
                 // If settings changed that affect the current image (like favorites filter),
                 // also send the current image
-                if (updates.favoritesOnly !== undefined || updates.mode !== undefined || updates.order !== undefined) {
+                if (updates.favoritesOnly !== undefined || updates.filterSql !== undefined || updates.mode !== undefined || updates.order !== undefined) {
                     const image = slideshowEngine.getCurrentImage();
                     if (image) {
                         // Note: do not force isPlaying here; clients keep their current play state

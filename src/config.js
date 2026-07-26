@@ -15,6 +15,9 @@ function loadConfig() {
     const defaults = JSON.parse(defaultContent);
 
     if (fs.existsSync(userConfigPath)) {
+        try {
+            require('./logger').debug('Using user config', { path: userConfigPath });
+        } catch (_) { /* logger may not be initialized yet */ }
         console.log(`Using config: ${userConfigPath}`);
         const userContent = fs.readFileSync(userConfigPath, 'utf8');
         const userConfig = JSON.parse(userContent);

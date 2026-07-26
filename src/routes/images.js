@@ -5,6 +5,7 @@ const ImageRotationService = require('../services/imageRotation');
 const { isHeif, streamHeifAsJpeg, getCachedJpegPath, libheifInstallHint } = require('../lib/heif');
 const { DELETED_DIR } = require('../lib/paths');
 const { favoriteMessage, rotateMessage } = require('../lib/messages');
+const logger = require('../logger');
 const router = express.Router();
 
 /**
@@ -232,14 +233,15 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             const imageId = parseInt(req.params.id);
             const image = db.getImageById(imageId);
             if (!image) {
-                return res.status(404).json({ error: 'Image not found' });
+                return res.status(404).json({ error: 'Image not found', missing: true });
             }
 
             const absolutePath = path.resolve(image.filepath);
             try {
                 await fs.promises.access(absolutePath, fs.constants.F_OK);
             } catch (accessError) {
-                return res.status(404).json({ error: 'Image file not found' });
+                logger.debug('Serve: file missing from disk', { id: imageId, filepath: image.filepath });
+                return res.status(404).json({ error: 'Image file not found', missing: true });
             }
 
             await sendImageOrHeif(req, res, {
@@ -381,11 +383,14 @@ function createImageRoutes(db, slideshowEngine, ctx) {
         try {
             const imageId = parseInt(req.params.id);
             const image = db.getImageById(imageId);
-            
+
+            logger.debug('Delete request received', { imageId, filepath: image?.filepath });
+
             if (!image) {
+                logger.debug('Delete aborted: image not found', { imageId });
                 return res.status(404).json({ error: 'Image not found' });
             }
-            
+
             // Immediately get next image and return response (don't wait for deletion)
             slideshowEngine.refreshImageList();
             const nextImage = advanceSlideshow ? await advanceSlideshow('next') : slideshowEngine.getNextImage();
@@ -402,7 +407,9 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             }
             
             res.json(response);
-            
+
+            logger.debug('Delete response sent, starting background deletion', { imageId });
+
             // Handle deletion in background (don't await)
             setImmediate(() => {
                 (async () => {
@@ -410,35 +417,46 @@ function createImageRoutes(db, slideshowEngine, ctx) {
                         const sourcePath = path.resolve(image.filepath);
                         const destPath = await moveFileToDeleted(sourcePath);
                         if (destPath) {
+                            logger.debug('Delete: file moved', { sourcePath, destPath });
                             console.log(`Moved ${image.filepath} to ${destPath}`);
                         } else {
+                            logger.debug('Delete: source file not found, removing from database only', { sourcePath, imageId });
                             console.log(`File not found: ${sourcePath}, removing from database only`);
                         }
 
                         // Remove from database
                         db.hardDelete(imageId);
+                        logger.debug('Delete: removed from database', { imageId });
+
+                        // Refresh slideshow list after deletion
                         slideshowEngine.refreshImageList();
+                        logger.debug('Delete: complete', { imageId });
                     } catch (error) {
+                        logger.error('Delete: background deletion failed', { imageId, error: error.message });
+
                         console.error('Error in background deletion:', error);
                         // Still try to remove from database even if file move failed
                         try {
                             db.hardDelete(imageId);
                             slideshowEngine.refreshImageList();
+                            logger.debug('Delete: recovered - removed from database after file move failure', { imageId });
                         } catch (dbError) {
+                            logger.error('Delete: failed to remove from database', { imageId, error: dbError.message });
                             console.error('Error removing from database:', dbError);
                         }
                     }
                 })();
             });
         } catch (error) {
+            logger.error('Delete: request failed', { imageId: req.params.id, error: error.message });
             console.error('Error deleting image:', error);
-            res.status(500).json({ 
+            res.status(500).json({
                 error: 'Failed to delete image',
-                message: error.message 
+                message: error.message
             });
         }
     });
-    
+
     // Rotate image left (counter-clockwise)
     router.post('/:id/rotate-left', async (req, res) => {
         try {
@@ -578,15 +596,17 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             const offset = (page - 1) * limit;
             const favoritesOnly = req.query.favorites === 'true';
             const orderBy = req.query.orderBy || 'date';
+            const filterSql = db.getSetting('filter_sql');
 
             const images = db.getAllImages({
                 favoritesOnly,
+                filterSql,
                 orderBy,
                 limit,
                 offset
             });
 
-            const total = db.getImagesCount(favoritesOnly);
+            const total = db.getImagesCount(favoritesOnly, false, filterSql);
 
             res.json({
                 images: images.map(img => slideshowEngine.formatImage(img)),

@@ -47,6 +47,7 @@ const elements = {
     orderSelect: document.getElementById('orderSelect'),
     intervalSelect: document.getElementById('intervalSelect'),
     favoritesOnlyCheck: document.getElementById('favoritesOnlyCheck'),
+    filterSqlTextarea: document.getElementById('filterSqlTextarea'),
     saveSettingsBtn: document.getElementById('saveSettingsBtn'),
     cancelSettingsBtn: document.getElementById('cancelSettingsBtn'),
     resetDatabaseBtn: document.getElementById('resetDatabaseBtn'),
@@ -60,6 +61,7 @@ const elements = {
     infoCamera: document.getElementById('infoCamera'),
     infoResolution: document.getElementById('infoResolution'),
     infoTags: document.getElementById('infoTags'),
+    infoArtisticScore: document.getElementById('infoArtisticScore'),
     
     // Stats
     statTotal: document.getElementById('statTotal'),
@@ -462,19 +464,26 @@ async function saveSettings() {
         mode: elements.modeSelect.value,
         order: elements.orderSelect.value,
         interval: parseInt(elements.intervalSelect.value),
-        favoritesOnly: elements.favoritesOnlyCheck.checked
+        favoritesOnly: elements.favoritesOnlyCheck.checked,
+        filterSql: elements.filterSqlTextarea.value.trim()
     };
     
     try {
-        const data = await apiCall('/settings', {
+        const response = await fetch('/api/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newSettings)
         });
-        
+        const data = await response.json();
+
+        if (!response.ok) {
+            alert(data.error || 'Failed to save settings');
+            return;
+        }
+
         updateSettings(data.settings);
         closeSettings();
-        
+
         // Server will handle slideshow interval update and broadcast new image if filters changed
         // No need to manually reload - SSE will handle it
     } catch (error) {
@@ -546,6 +555,7 @@ function displayFirstImage(image, imageUrl) {
     elements.nextImage.style.zIndex = '';
 
     elements.mainImage.onload = () => {
+        skipMissingCount = 0;
         elements.mainImage.style.opacity = '1';
         updateInfoOverlay(image);
         updateLocationOverlay(image);
@@ -556,8 +566,8 @@ function displayFirstImage(image, imageUrl) {
     };
 
     elements.mainImage.onerror = () => {
-        console.error('Failed to load image:', imageUrl);
-        showNoImages();
+        console.error('Failed to load image (missing file?), skipping:', imageUrl);
+        autoSkipMissing();
     };
 }
 
@@ -587,15 +597,17 @@ function displayWithCrossfade(image, imageUrl) {
 
     // Wait for image to load before crossfading
     nextImg.onload = () => {
+        skipMissingCount = 0;
         swapImages(currentImg, nextImg, image);
         queueMattingBackground(nextImg);
     };
 
     nextImg.onerror = () => {
-        console.error('Failed to load image:', imageUrl);
+        console.error('Failed to load image (missing file?), skipping:', imageUrl);
         nextImg.style.display = 'none';
         nextImg.classList.remove('next');
         nextImg.style.zIndex = '';
+        autoSkipMissing();
     };
 }
 
@@ -656,7 +668,36 @@ function swapImages(currentImg, nextImg, image) {
     elements.noImagesMessage.style.display = 'none';
 }
 
+// When an image fails to load (file missing from disk), auto-advance to next.
+// Caps retries to avoid infinite loops if every image is missing.
+let skipMissingCount = 0;
+function autoSkipMissing() {
+    skipMissingCount++;
+    if (skipMissingCount > 10) {
+        // Too many consecutive failures — give up and show empty state
+        skipMissingCount = 0;
+        showNoImages();
+        return;
+    }
+    // Ask server for next image (server will also clean up the stale DB entry)
+    fetch('/api/image/next')
+        .then(r => r.json())
+        .then(data => {
+            if (data.image) {
+                displayImage(data.image, data.preload || []);
+            } else {
+                skipMissingCount = 0;
+                showNoImages();
+            }
+        })
+        .catch(() => {
+            skipMissingCount = 0;
+            showNoImages();
+        });
+}
+
 function showNoImages() {
+    skipMissingCount = 0;
     elements.mainImage.style.display = 'none';
     elements.mainImage.classList.remove('current', 'next');
     elements.mainImage.style.zIndex = '';
@@ -741,6 +782,19 @@ function updateInfoOverlay(image) {
         elements.infoTags.textContent = image.tags.join(', ');
     } else {
         elements.infoTags.textContent = '-';
+    }
+
+    // Artistic Score
+    if (image.artisticScore != null) {
+        let scoreText = image.artisticScore.toLocaleString() + ' / 1,000,000';
+        if (image.artisticScoreDetails) {
+            const d = image.artisticScoreDetails;
+            const fmt = (n) => n >= 1000 ? Math.round(n / 1000) + 'K' : n;
+            scoreText += ` (Comp: ${fmt(d.composition)}, Light: ${fmt(d.lighting)}, Color: ${fmt(d.color)})`;
+        }
+        elements.infoArtisticScore.textContent = scoreText;
+    } else {
+        elements.infoArtisticScore.textContent = 'Not scored';
     }
 }
 
@@ -848,6 +902,9 @@ function updateSettings(settings) {
     elements.orderSelect.value = settings.order;
     elements.intervalSelect.value = settings.interval.toString();
     elements.favoritesOnlyCheck.checked = settings.favoritesOnly;
+    if (elements.filterSqlTextarea) {
+        elements.filterSqlTextarea.value = settings.filterSql || '';
+    }
 }
 
 function updateClock() {

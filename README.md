@@ -1,15 +1,17 @@
 # Raspberry Pi Digital Picture Frame
 
-A complete, production-ready digital picture frame application designed for Raspberry Pi, capable of handling 200,000+ photos with intelligent indexing, real-time file monitoring, and web-based remote control.
+A digital picture frame application for Raspberry Pi (and macOS via Electron), capable of handling 200,000+ photos with intelligent indexing, real-time file monitoring, and web-based remote control.
 
 ## Features
 
 ### Core Functionality
-- **Intelligent Slideshow Engine** with three selection modes:
+- **Intelligent Slideshow Engine** with four selection modes:
   - **Sequential**: Linear progression by date or filename
   - **Random**: True random selection
   - **Smart**: Weighted selection favoring favorites (3x), recent photos (2x), and "this day in history" (10x) — weights multiply, so a favorite from this day = 30x
+  - **Artistic (Best First)**: Sorted by AI-assessed artistic quality, highest score first
 - **Server-Authoritative Slideshow**: Timer runs server-side with all connected clients kept in sync via Server-Sent Events (SSE)
+- **Back/Forward Navigation History**: Reliable previous/next even in random and smart modes
 - **Real-time File Monitoring**: Automatically detects and indexes new, modified, or deleted photos
 - **Web-based Control Interface**: Control slideshow from any device on your network
 - **Remote Control UI**: Dedicated mobile-friendly remote at `/remote`
@@ -18,13 +20,15 @@ A complete, production-ready digital picture frame application designed for Rasp
 ### Photo Management
 - **4K Resize Pipeline**: Images are resized to 4K (3840x2160) on ingest, with originals deleted after successful resize. Resized files stored in `{photoDir}/resized/{year}/`
 - **Favorites System**: Mark and filter favorite photos with visual indicators
-- **Delete with Undo**: 5-second undo window before deletion. Files are moved to `data/deleted/` for recovery, then removed from the database
-- **Download Images**: Download current image to your device
+- **Delete with Undo**: 5-second undo window before deletion. Files are moved to `data/deleted/` for recovery, then the row is removed from the database
+- **Download Images**: Download current image to your device (HEIF auto-converted to JPEG)
 - **Physical Image Rotation**: Permanently rotate images 90° left or right via Sharp, with automatic backup/restore on failure
+- **Custom SQL Filtering**: Restrict the slideshow to a user-provided SQL filter clause, validated against injection before use
 - **Metadata Display**: View EXIF data, GPS coordinates, camera info, and more
 - **Geolocation**: Automatic background reverse geocoding displays city and country for GPS-tagged photos
 
 ### Advanced Features
+- **AI Artistic Scoring** (optional): Background scoring of photos via the Claude API across composition, lighting, color, subject, and creativity; powers the Artistic (Best First) slideshow mode. Disabled by default — requires an API key configured in `~/picframe-config.json`
 - **"This Day in History"**: Show photos from today's date across all years
 - **Dynamic Matting Background**: Background color/gradient extracted from the image's dominant colors using canvas-based k-means clustering
 - **Clock Display**: Always-visible clock on the main display
@@ -33,6 +37,14 @@ A complete, production-ready digital picture frame application designed for Rasp
 - **Image Preloading**: Configurable number of images preloaded (default 15)
 - **Performance Optimized**: Handles 200k+ images with indexed SQLite database
 - **Config Override**: Per-user config at `~/picframe-config.json` deep-merged over project `config.json`
+- **Debug Logging**: Structured logger writes to `data/debug.log` when `debug.enabled` is true in config, capturing server events, watcher activity, indexing, and settings changes
+
+### Electron Desktop App
+- Fullscreen kiosk mode (configurable via `ELECTRON_KIOSK` env var)
+- Embedded server or connect to an external one (`ELECTRON_USE_EXTERNAL_SERVER=1`)
+- Triggers 4K resize on startup
+- Health-check waits up to 20 seconds for server readiness
+- Graceful shutdown with SIGTERM -> SIGKILL fallback
 
 ## Technology Stack
 
@@ -41,23 +53,25 @@ A complete, production-ready digital picture frame application designed for Rasp
 - **Image Processing**: Sharp v0.34.5 for resize and rotation
 - **Metadata Extraction**: exifreader v4.16.0 for EXIF data
 - **File Monitoring**: chokidar v3.5.3 for real-time file watching
+- **AI Scoring**: Anthropic Claude API (`@anthropic-ai/sdk`) for optional artistic photo scoring
 - **Frontend**: Vanilla JavaScript with responsive CSS
-- **Display**: Electron app (preferred) or Chromium browser in kiosk mode
+- **Display**: Electron v40.6.1 (preferred) or Chromium browser in kiosk mode
 - **Geolocation**: OpenStreetMap Nominatim API (free, no API key required)
 
 ## Requirements
 
 ### Hardware
-- Raspberry Pi 3B+ or newer (Pi 4 recommended for 4K displays)
-- 4K TV or monitor with HDMI input
-- Network connection (for initial setup and remote control)
-- Storage for photos (SSD or fast USB drive recommended for large collections)
+- Raspberry Pi 3B+ or newer (Pi 4 recommended for 4K)
+- Display with HDMI input
+- Network connection
+- Storage for photos (SSD or fast USB recommended for large collections)
 
 ### Software
 - Raspberry Pi OS (Debian-based) or macOS
 - Node.js 16 or newer
 - Chromium browser (for kiosk mode) or Electron (for app mode)
 - Optional: `libheif` for HEIC/HEIF support (`brew install libheif` on macOS, `sudo apt-get install libheif-dev` on Linux)
+- Optional: an Anthropic API key if you want AI artistic scoring
 
 ## Quick Installation
 
@@ -69,7 +83,7 @@ A complete, production-ready digital picture frame application designed for Rasp
    scp -r picture-frame pi@raspberrypi.local:/home/pi/
 
    # Or clone directly on Pi
-   git clone <repository-url> /home/pi/picture-frame
+   git clone https://github.com/rajeevhans/picture-frame.git /home/pi/picture-frame
    cd /home/pi/picture-frame
    ```
 
@@ -116,7 +130,7 @@ A complete, production-ready digital picture frame application designed for Rasp
    ```
 
 3. **Configure photo directory:**
-   Edit `config.json` and set `photoDirectory` to your photos location:
+   Edit `config.json` (or create `~/picframe-config.json` for user overrides) and set `photoDirectory` to your photos location:
    ```json
    {
      "photoDirectory": "/home/pi/Pictures",
@@ -163,10 +177,10 @@ Both UIs receive real-time updates via SSE. The slideshow timer is server-author
 - **Escape**: Close panels/overlays
 
 ### Settings Panel
-- **Mode**: Sequential, Random, or Smart selection
+- **Mode**: Sequential, Random, Smart, or Artistic (Best First) selection
 - **Order**: Date taken, filename, or "This Day in History"
 - **Interval**: 5 seconds to 5 minutes between images
-- **Filters**: Show favorites only
+- **Filters**: Show favorites only, or restrict to a custom SQL filter
 - **System**: Restart server, reset database
 
 ### Service Management
@@ -195,6 +209,7 @@ sudo journalctl -u pictureframe-display.service -f
 {
   "photoDirectory": "/path/to/your/photos",
   "databasePath": "./data/pictureframe.db",
+  "debug": { "enabled": false },
   "serverPort": 3000,
   "slideshow": {
     "defaultInterval": 10,
@@ -204,7 +219,8 @@ sudo journalctl -u pictureframe-display.service -f
   },
   "fileExtensions": [".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif"],
   "indexing": {
-    "batchSize": 100
+    "batchSize": 100,
+    "logInterval": 500
   },
   "watcher": {
     "usePolling": false
@@ -213,17 +229,36 @@ sudo journalctl -u pictureframe-display.service -f
     "maxWidth": 3840,
     "maxHeight": 2160,
     "runOnStartup": true
+  },
+  "auth": {
+    "enabled": false,
+    "secret": null,
+    "trustLoopback": true,
+    "cookieName": "pf_auth"
+  },
+  "artisticScore": {
+    "enabled": false,
+    "apiKey": null,
+    "model": "claude-sonnet-4-20250514",
+    "batchSize": 50,
+    "rateLimitMs": 1000,
+    "maxImageSize": 1024,
+    "runOnStartup": true
   }
 }
 ```
 
+- `debug.enabled` — turns on the structured logger (writes to `data/debug.log`). Off by default.
+- `auth` — optional shared-secret gate, see [Authentication](#authentication) below. Disabled by default.
+- `artisticScore` — optional AI photo scoring, see [Artistic Scoring](#artistic-scoring) below. Disabled by default.
+
 ### Config Override
 
-Create `~/picframe-config.json` with any subset of options to override the project defaults. Partial overrides work via deep merge — you only need to include the fields you want to change.
+Create `~/picframe-config.json` with any subset of options to override the project defaults. Partial overrides work via deep merge — you only need to include the fields you want to change. This is also where secrets (the `auth.secret` and `artisticScore.apiKey`) belong — never commit them to the tracked `config.json`.
 
 ## Authentication
 
-The picture frame supports an optional shared-secret gate. The **physical
+The picture frame supports an optional shared-secret gate, disabled by default. The **physical
 frame display is always open over loopback** (`127.0.0.1`), so the wall-mounted
 screen never needs a login. Every other client — LAN browsers, the phone
 remote, Stream Deck — must present the secret when auth is enabled.
@@ -256,6 +291,35 @@ Enable it in `~/picframe-config.json`:
 
 Login is rate-limited to 10 attempts per 5 minutes per IP.
 
+## Artistic Scoring
+
+Optional AI-assisted photo ranking, disabled by default. When enabled, a background job sends resized copies of your photos to the Claude API and stores a composite artistic score (1 to 1,000,000) plus a per-category breakdown (composition, lighting, color, subject, creativity) in the database. The **Artistic (Best First)** slideshow mode then orders photos by that score, highest first.
+
+Enable it in `~/picframe-config.json` (the API key must live here, not in the tracked `config.json`):
+
+```json
+{
+  "artisticScore": {
+    "enabled": true,
+    "apiKey": "sk-ant-...",
+    "model": "claude-sonnet-4-20250514",
+    "batchSize": 50,
+    "rateLimitMs": 1000,
+    "maxImageSize": 1024,
+    "runOnStartup": true
+  }
+}
+```
+
+- `apiKey` — your Anthropic API key. Required for scoring to run; if missing, the feature stays inactive.
+- `batchSize` / `rateLimitMs` — control how many images are scored per batch and the delay between requests, to manage API cost and rate limits.
+- `maxImageSize` — images are downscaled to this max dimension before being sent, to reduce API payload size and cost.
+- `runOnStartup` — score any unscored photos automatically when the server starts.
+
+## Custom SQL Filtering
+
+The slideshow can be restricted to a user-supplied `filterSql` clause (set via the Settings panel or `POST /api/settings`). The clause is validated before use to guard against SQL injection and is combined with the current mode/order/favorites settings. Useful for narrowing the rotation to, say, a specific year, camera, or tag without changing the underlying photo library.
+
 ### Slideshow Modes
 
 1. **Sequential**:
@@ -276,6 +340,11 @@ Login is rate-limited to 10 attempts per 5 minutes per IP.
    - Weights are multiplicative (a favorite from this day = 30x)
    - Weight cache refreshes every 5 seconds
 
+4. **Artistic (Best First)**:
+   - Ordered by AI artistic score, highest first
+   - Requires `artisticScore.enabled` and a valid API key
+   - Photos without a score yet sort last
+
 ### File Organization
 
 ```
@@ -283,11 +352,14 @@ picture-frame/
 ├── src/                    # Source code
 │   ├── server.js          # Main server entry point
 │   ├── config.js          # Config loading with user override merge
+│   ├── logger.js          # Debug logger (data/debug.log)
 │   ├── database/          # Database management and schema
 │   ├── indexer/           # File scanning, metadata extraction, resize pipeline
 │   ├── slideshow/         # Slideshow engine (modes, navigation, preload)
-│   ├── services/          # Geolocation, image rotation services
-│   ├── routes/            # API endpoints (images, settings)
+│   ├── services/          # Geolocation, image rotation, artistic scoring services
+│   ├── routes/            # API endpoints (images, settings, login)
+│   ├── middleware/        # Auth middleware
+│   ├── lib/               # Shared utilities (paths, messages, HEIF helpers)
 │   └── public/            # Web interface files
 │       ├── index.html     # Main fullscreen display
 │       ├── js/app.js      # Display app (crossfade, matting, keyboard)
@@ -296,8 +368,9 @@ picture-frame/
 ├── scripts/               # Utility scripts
 │   ├── resizeTo4k.js     # Batch resize images to 4K
 │   └── benchmark.js      # Performance benchmarking
-├── data/                  # Database and deleted files
+├── data/                  # Database, logs, and deleted files (gitignored)
 │   ├── pictureframe.db   # SQLite database
+│   ├── debug.log         # Debug log (when debug.enabled is true)
 │   └── deleted/          # Deleted photos (recoverable)
 ├── electron/              # Electron app wrapper
 │   ├── main.js           # Electron main process
@@ -336,34 +409,41 @@ The application provides a REST API for remote control:
 
 ```bash
 # Navigation
-GET  /api/image/current        # Get current image with preload list
-GET  /api/image/next           # Advance to next image
-GET  /api/image/previous       # Go to previous image
+GET  /api/image/current            # Get current image with preload list
+GET  /api/image/next               # Advance to next image
+GET  /api/image/previous           # Go to previous image
+
+# Image listing & serving
+GET    /api/image                  # Paginated list (page, limit, favorites, orderBy)
+GET    /api/image/:id               # Get a single image's metadata
+GET    /api/image/:id/serve         # Serve the image file (HEIF converted to JPEG, cached)
+GET    /api/image/:id/download      # Download image file
 
 # Image management
-POST   /api/image/:id/favorite     # Toggle favorite status
-POST   /api/image/:id/rotate-left  # Physically rotate image 90° counter-clockwise
-POST   /api/image/:id/rotate-right # Physically rotate image 90° clockwise
-GET    /api/image/:id/download     # Download image file
-DELETE /api/image/:id              # Delete image (move to data/deleted/, remove from DB)
+POST   /api/image/:id/favorite      # Toggle favorite status
+POST   /api/image/current/favorite  # Toggle favorite on the current image
+POST   /api/image/:id/rotate-left   # Physically rotate image 90° counter-clockwise
+POST   /api/image/:id/rotate-right  # Physically rotate image 90° clockwise
+DELETE /api/image/:id                # Delete image (move to data/deleted/, remove from DB)
+DELETE /api/image/current            # Delete the current image
 
 # Slideshow control
-GET  /api/slideshow/state      # Get play/pause state and interval
-POST /api/slideshow/start      # Start slideshow
-POST /api/slideshow/pause      # Pause slideshow
+GET  /api/slideshow/state          # Get play/pause state and interval
+POST /api/slideshow/start          # Start slideshow
+POST /api/slideshow/pause          # Pause slideshow
 
 # Settings
-GET  /api/settings             # Get slideshow settings
-POST /api/settings             # Update settings
+GET  /api/settings                 # Get slideshow settings
+POST /api/settings                 # Update settings (mode, order, interval, favoritesOnly, filterSql)
+POST /api/settings/restart         # Exit the server process (a supervisor — systemd/pm2/Electron — restarts it)
 
 # System
-GET  /api/stats                # Database statistics
-POST /api/database/reset       # Reset database and re-index all photos
-GET  /api/health               # Health check
-POST /api/settings/restart     # Restart server process
+GET  /api/stats                    # Database statistics
+POST /api/database/reset           # Reset database and re-index all photos
+GET  /api/health                   # Health check
 
 # Real-time updates
-GET  /api/events               # Server-Sent Events stream
+GET  /api/events                   # Server-Sent Events stream
 ```
 
 ### Database Schema
@@ -383,6 +463,7 @@ CREATE TABLE images (
     longitude REAL,
     location_city TEXT,
     location_country TEXT,
+    geocode_attempted INTEGER DEFAULT 0,
     width INTEGER,
     height INTEGER,
     orientation INTEGER DEFAULT 1,
@@ -390,10 +471,11 @@ CREATE TABLE images (
     camera_model TEXT,
     camera_make TEXT,
     is_favorite INTEGER DEFAULT 0,
-    is_deleted INTEGER DEFAULT 0,
     tags TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
+    -- artistic_score, artistic_score_details added via migration when the
+    -- artistic scoring feature is first used
 );
 
 -- Settings table (key-value store)
@@ -403,6 +485,8 @@ CREATE TABLE settings (
     updated_at INTEGER NOT NULL
 );
 ```
+
+Deleted photos are moved to `data/deleted/` and their row is removed from the database immediately (no `is_deleted` flag) — recovery means restoring the file and re-indexing.
 
 ## 4K Resize Pipeline
 
@@ -426,6 +510,7 @@ The system automatically processes GPS coordinates from photo EXIF data:
 - **Rate Limited**: 1 request per second to respect API limits
 - **Background Processing**: Runs in batches of 100 after server startup, with 10-second pauses between batches
 - **Cached Results**: In-memory cache (keyed by coordinates rounded to 4 decimal places) and stored in database
+- **No Repeat Lookups**: Photos are marked as geocode-attempted after a lookup, so ones with no GPS data or no match aren't retried on every startup
 - **Visual Display**: Shows date and location on bottom-left overlay of main display
 
 ## "This Day in History" Mode
@@ -446,18 +531,19 @@ Special slideshow order that shows photos from today's date across all years:
 - **Smart Updates**: Only processes changed files on re-indexing (compares file modification time)
 
 ### Runtime Performance
-- **Database**: 6 indexes for fast queries (date_taken, date_added, is_favorite, is_deleted, filename, filepath)
-- **Caching**: HTTP caching headers with ETag for served images (24-hour max-age)
+- **Database**: Indexed for fast queries (date_taken, date_added, is_favorite, filename, filepath, artistic_score)
+- **Caching**: HTTP caching headers with ETag for served images (24-hour max-age); converted HEIF-to-JPEG output is also cached on disk
 - **Preloading**: Configurable number of images preloaded (default 15)
 - **Optimized**: WAL mode SQLite with 64MB cache for better concurrency
 - **Smart Weights**: Cached for 5 seconds to avoid recalculation every advance
 
 ## Security & Privacy
 
-- **Local Network Only**: No external authentication required
+- **Auth is opt-in**: No login is required by default; enable the shared-secret gate under `auth` in config if the frame is reachable beyond your local network
 - **Recoverable Delete**: Files moved to `data/deleted/` folder, not permanently deleted
 - **Read-Only Serving**: Image files served with proper caching headers
 - **Rate Limited**: Geolocation API calls limited to 1/second
+- **Validated SQL Filters**: Custom `filterSql` input is validated before use to prevent injection
 - **Sandboxed**: Electron runs with context isolation, no node integration in renderer
 
 ## Troubleshooting
@@ -509,18 +595,28 @@ Special slideshow order that shows photos from today's date across all years:
    ls -lh data/pictureframe.db
    ```
 
+6. **Artistic scores not appearing:**
+   - Confirm `artisticScore.enabled` is `true` and `apiKey` is set in `~/picframe-config.json`
+   - Check `data/debug.log` (with `debug.enabled: true`) for scoring errors/rate-limit messages
+
 ### Log Locations
 
 - **Service logs**: `sudo journalctl -u pictureframe.service`
 - **Display logs**: `sudo journalctl -u pictureframe-display.service`
-- **Application logs**: Console output in service logs
+- **Application logs**: Console output in service logs, plus `data/debug.log` when `debug.enabled` is true
 
 ## Additional Documentation
 
-- **PROJECT_SUMMARY.md**: Technical implementation details
-- **QUICKSTART.md**: Quick start guide for development
-- **PERFORMANCE_AUDIT.md**: Performance benchmarks and optimization notes
-- **4K_RESIZE_PLAN.md**: Design document for the resize pipeline
+- [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md) — Technical implementation details
+- [QUICKSTART.md](QUICKSTART.md) — Quick start guide
+- [4K_RESIZE_PLAN.md](4K_RESIZE_PLAN.md) — 4K resize pipeline design
+- [ROTATION_FEATURE.md](ROTATION_FEATURE.md) — Physical image rotation
+- [GEOLOCATION_FEATURE.md](GEOLOCATION_FEATURE.md) — GPS and location features
+- [THIS_DAY_FEATURE.md](THIS_DAY_FEATURE.md) — "This day in history" implementation
+- [DATABASE_RESET_FEATURE.md](DATABASE_RESET_FEATURE.md) — Database management
+- [FILE_DELETION_HANDLING.md](FILE_DELETION_HANDLING.md) — Delete/recovery implementation
+- [DOWNLOAD_FEATURE.md](DOWNLOAD_FEATURE.md) — Image download feature
+- [PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md) — Performance audit results
 
 ## License
 
@@ -533,3 +629,4 @@ MIT License - Feel free to use, modify, and distribute.
 - **better-sqlite3**: Fast SQLite3 bindings for Node.js
 - **exifreader**: Comprehensive EXIF metadata extraction
 - **chokidar**: Cross-platform file watching
+- **Anthropic Claude API**: Powers optional AI artistic photo scoring

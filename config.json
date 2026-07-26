@@ -1,6 +1,9 @@
 {
   "photoDirectory": "/Volumes/1tb/all-pics",
   "databasePath": "./data/pictureframe.db",
+  "debug": {
+    "enabled": true
+  },
   "serverPort": 3000,
   "slideshow": {
     "defaultInterval": 10,
@@ -26,7 +29,14 @@
     "secret": null,
     "trustLoopback": true,
     "cookieName": "pf_auth"
+  },
+  "artisticScore": {
+    "enabled": false,
+    "apiKey": null,
+    "model": "claude-sonnet-4-20250514",
+    "batchSize": 50,
+    "rateLimitMs": 1000,
+    "maxImageSize": 1024,
+    "runOnStartup": true
   }
 }
-
-

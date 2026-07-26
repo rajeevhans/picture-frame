@@ -22,6 +22,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
     "better-sqlite3": "^12.6.2",
     "chokidar": "^3.5.3",
     "exifreader": "^4.16.0",

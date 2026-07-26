@@ -4,11 +4,13 @@ const fs = require('fs');
 const { loadConfig } = require('./config');
 const { resolveDbPath, resolvePhotoDir } = require('./lib/paths');
 const { imageMessage } = require('./lib/messages');
+const logger = require('./logger');
 const DatabaseManager = require('./database/db');
 const DirectoryScanner = require('./indexer/scanner');
 const FileWatcher = require('./indexer/watcher');
 const SlideshowEngine = require('./slideshow/engine');
 const GeolocationService = require('./services/geolocation');
+const ArtisticScoringService = require('./services/artisticScoring');
 const createImageRoutes = require('./routes/images');
 const createSettingsRoutes = require('./routes/settings');
 const { createAuthMiddleware } = require('./middleware/auth');
@@ -16,6 +18,7 @@ const createLoginRoutes = require('./routes/login');
 
 // Load configuration (~/picframe-config.json or config.json)
 const config = loadConfig();
+logger.init(config);
 
 // Auth sanity check: enabled but no secret → fail OPEN with a loud warning so
 // the frame is never bricked into a locked-out state.
@@ -42,6 +45,11 @@ const scanner = new DirectoryScanner(db, config);
 
 // Initialize geolocation service
 const geoService = new GeolocationService();
+
+// Initialize artistic scoring service (if enabled)
+const artisticScoringService = config.artisticScore?.enabled
+    ? new ArtisticScoringService(config.artisticScore)
+    : null;
 
 // SSE clients for broadcasting updates
 const sseClients = new Set();
@@ -151,7 +159,8 @@ app.get('/api/events', (req, res) => {
     
     // Add client to set
     sseClients.add(res);
-    
+    logger.debug('SSE client connected', { totalClients: sseClients.size });
+
     // Send initial current image
     try {
         const image = slideshowEngine.getCurrentImage();
@@ -171,6 +180,7 @@ app.get('/api/events', (req, res) => {
     // Remove client on disconnect
     req.on('close', () => {
         sseClients.delete(res);
+        logger.debug('SSE client disconnected', { remainingClients: sseClients.size });
         res.end();
     });
 });
@@ -256,6 +266,7 @@ async function startServer() {
         sseClients.forEach(client => client.end());
         sseClients.clear();
         db.close();
+        logger.close();
         process.exit(0);
     };
     process.on('SIGINT', shutdown);
@@ -263,6 +274,13 @@ async function startServer() {
 
     // Start HTTP server
     app.listen(PORT, () => {
+        logger.debug('Server started', {
+            port: PORT,
+            photoDir,
+            dbPath,
+            imageCount: db.getImagesCount(),
+            mode: slideshowEngine.settings.mode
+        });
         console.log(`\n=== Picture Frame Server Running ===`);
         console.log(`URL: http://localhost:${PORT}`);
         console.log(`Photo Directory: ${photoDir}`);
@@ -283,6 +301,11 @@ async function startServer() {
         // Start background geolocation lookup
         if (!forceIndex) {
             startGeolocationLookup();
+        }
+
+        // Start background artistic scoring
+        if (!forceIndex && artisticScoringService && config.artisticScore?.runOnStartup) {
+            startArtisticScoring();
         }
 
         // Run 4K resize in background when Electron app starts (or when config says so)
@@ -311,6 +334,35 @@ async function startServer() {
         }, 5000); // Wait 5 seconds after startup
     }
     
+    // Background artistic scoring
+    async function startArtisticScoring() {
+        setTimeout(async () => {
+            await processArtisticScoringBatch();
+        }, 10000); // Wait 10 seconds after startup
+    }
+
+    async function processArtisticScoringBatch() {
+        const batchSize = config.artisticScore?.batchSize || 50;
+        const imagesToScore = db.getImagesNeedingArtisticScore(batchSize);
+
+        if (imagesToScore.length > 0) {
+            const remaining = db.getImagesNeedingArtisticScore(10000).length;
+            console.log(`Starting artistic scoring: ${imagesToScore.length} images (${remaining} total remaining)...`);
+
+            await artisticScoringService.batchScore(imagesToScore, (id, scores) => {
+                return db.updateImage(id, scores);
+            });
+
+            const stillRemaining = db.getImagesNeedingArtisticScore(1).length;
+            if (stillRemaining > 0) {
+                console.log(`Artistic scoring: scheduling next batch in 10 seconds...`);
+                setTimeout(() => processArtisticScoringBatch(), 10000);
+            } else {
+                console.log(`✓ All artistic scoring complete!`);
+            }
+        }
+    }
+
     // Process geolocation in batches continuously
     async function processGeolocationBatch() {
         const batchSize = 100;

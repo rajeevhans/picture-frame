@@ -1,8 +1,9 @@
 const { imageMessage, slideshowStateMessage } = require('../lib/messages');
+const logger = require('../logger');
 
 // Allow-lists for settings. Exposed (via static on the class) so callers
 // can inspect them for UI/validation purposes without duplicating strings.
-const VALID_MODES = Object.freeze(['sequential', 'random', 'smart']);
+const VALID_MODES = Object.freeze(['sequential', 'random', 'smart', 'artistic']);
 const VALID_ORDERS = Object.freeze(['date', 'filename', 'thisday']);
 
 /**
@@ -35,7 +36,8 @@ class SlideshowEngine {
             mode: 'sequential',
             order: 'date',
             interval: 10,
-            favoritesOnly: false
+            favoritesOnly: false,
+            filterSql: ''
         };
         // Reliable navigation history
         this.backStack = [];
@@ -89,6 +91,9 @@ class SlideshowEngine {
         if (savedSettings.filter_favorites_only) {
             this.settings.favoritesOnly = savedSettings.filter_favorites_only === '1';
         }
+        if (savedSettings.filter_sql !== undefined && savedSettings.filter_sql !== null) {
+            this.settings.filterSql = savedSettings.filter_sql;
+        }
         if (savedSettings.current_image_id) {
             this.currentImageId = parseInt(savedSettings.current_image_id);
         }
@@ -101,23 +106,27 @@ class SlideshowEngine {
 
     refreshImageList() {
         const options = {
-            favoritesOnly: this.settings.favoritesOnly
+            favoritesOnly: this.settings.favoritesOnly,
+            filterSql: this.settings.filterSql
         };
 
         // Special handling for "this day" order
         if (this.settings.order === 'thisday') {
             options.thisDay = true;
             options.orderBy = 'thisday';
+        } else if (this.settings.order === 'random' || this.settings.mode === 'random') {
+            options.orderBy = 'random';
         } else if (this.settings.mode === 'sequential') {
             options.orderBy = this.settings.order;
-        } else if (this.settings.mode === 'random') {
-            options.orderBy = 'random';
         } else if (this.settings.mode === 'smart') {
             // For smart mode, we'll get all images and apply weighting
             options.orderBy = this.settings.order;
+        } else if (this.settings.mode === 'artistic') {
+            options.orderBy = 'artisticScore';
         }
 
         this.imageList = this.db.getAllImages(options);
+        logger.debug('Image list refreshed', { count: this.imageList.length, options });
         console.log(`Loaded ${this.imageList.length} images for slideshow`);
 
         // Find current index if we have a current image
@@ -350,7 +359,16 @@ class SlideshowEngine {
      * engine reference rather than a db reference.
      */
     formatImage(image) {
-        return this.db.formatImage(image);
+        // db.formatImage is the single source of truth for the base
+        // camelCase shape; layer artisticScore fields on top since those
+        // aren't (yet) part of that shared shape.
+        return {
+            ...this.db.formatImage(image),
+            artisticScore: image.artistic_score || null,
+            artisticScoreDetails: image.artistic_score_details
+                ? JSON.parse(image.artistic_score_details)
+                : null
+        };
     }
 
     getSettings() {
@@ -359,6 +377,7 @@ class SlideshowEngine {
             order: this.settings.order,
             interval: this.settings.interval,
             favoritesOnly: this.settings.favoritesOnly,
+            filterSql: this.settings.filterSql || '',
             totalImages: this.imageList.length
         };
     }
@@ -438,10 +457,23 @@ class SlideshowEngine {
             needsRefresh = true;
         }
 
+        if (newSettings.filterSql !== undefined) {
+            const filterSql = typeof newSettings.filterSql === 'string' ? newSettings.filterSql.trim() : '';
+            if (filterSql !== (this.settings.filterSql || '')) {
+                this.settings.filterSql = filterSql;
+                this.db.setSetting('filter_sql', filterSql);
+                needsRefresh = true;
+            }
+        }
+
         if (needsRefresh) {
             this.refreshImageList();
             // refreshImageList() bumped listVersion, which invalidates the
-            // smart-weight cache on the next selectSmartImage() call.
+            // smart-weight cache on the next selectSmartImage() call. Clear
+            // eagerly too so stale weights don't linger in the meantime.
+            this.smartWeights = null;
+            this.smartWeightsTimestamp = 0;
+            logger.debug('Settings updated', { settings: this.getSettings() });
             console.log('Slideshow settings updated and image list refreshed');
         }
 

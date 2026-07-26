@@ -54,6 +54,10 @@
                 <span class="info-label">Tags:</span>
                 <span id="infoTags" class="info-value">-</span>
             </div>
+            <div class="info-item">
+                <span class="info-label">Artistic Score:</span>
+                <span id="infoArtisticScore" class="info-value">-</span>
+            </div>
         </div>
     </div>
 
@@ -157,6 +161,7 @@
                     <option value="sequential">Sequential</option>
                     <option value="random">Random</option>
                     <option value="smart">Smart (Weighted)</option>
+                    <option value="artistic">Artistic (Best First)</option>
                 </select>
             </div>
 
@@ -165,6 +170,7 @@
                 <select id="orderSelect">
                     <option value="date">By Date</option>
                     <option value="filename">By Filename</option>
+                    <option value="random">Random</option>
                     <option value="thisday">This Day in History</option>
                 </select>
             </div>
@@ -186,6 +192,12 @@
                     <input type="checkbox" id="favoritesOnlyCheck">
                     Show favorites only
                 </label>
+            </div>
+
+            <div class="settings-group">
+                <label for="filterSqlTextarea">Filter SQL Query (optional)</label>
+                <textarea id="filterSqlTextarea" rows="3" placeholder="e.g. SELECT id FROM images WHERE tags LIKE '%vacation%'"></textarea>
+                <p class="settings-help">Query must return an <code>id</code> column from the images table. Leave empty to show all images.</p>
             </div>
 
             <div class="settings-group stats">
