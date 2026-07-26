@@ -22,6 +22,16 @@ class DatabaseManager {
         const schemaPath = path.join(__dirname, 'schema.sql');
         const schema = fs.readFileSync(schemaPath, 'utf8');
         this.db.exec(schema);
+
+        // Migration: add artistic score columns
+        try {
+            this.db.exec('ALTER TABLE images ADD COLUMN artistic_score INTEGER');
+        } catch (e) { /* column already exists */ }
+        try {
+            this.db.exec('ALTER TABLE images ADD COLUMN artistic_score_details TEXT');
+        } catch (e) { /* column already exists */ }
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_artistic_score ON images(artistic_score)');
+
         console.log('Database initialized successfully');
     }
 
@@ -156,6 +166,8 @@ class DatabaseManager {
             query += ' ORDER BY filename ASC';
         } else if (options.orderBy === 'random') {
             query += ' ORDER BY RANDOM()';
+        } else if (options.orderBy === 'artisticScore') {
+            query += ' ORDER BY artistic_score IS NULL, artistic_score DESC';
         } else if (options.orderBy === 'thisday') {
             // For "this day", order by year descending (most recent years first)
             query += ' ORDER BY date_taken DESC';
@@ -225,6 +237,16 @@ class DatabaseManager {
         if (updates.rotation !== undefined) {
             fields.push('rotation = @rotation');
             values.rotation = updates.rotation;
+        }
+        if (updates.artisticScore !== undefined) {
+            fields.push('artistic_score = @artisticScore');
+            values.artisticScore = updates.artisticScore;
+        }
+        if (updates.artisticScoreDetails !== undefined) {
+            fields.push('artistic_score_details = @artisticScoreDetails');
+            values.artisticScoreDetails = typeof updates.artisticScoreDetails === 'string'
+                ? updates.artisticScoreDetails
+                : JSON.stringify(updates.artisticScoreDetails);
         }
 
         fields.push('updated_at = @updatedAt');
@@ -351,6 +373,17 @@ class DatabaseManager {
         };
     }
     
+    // Artistic score operations
+    getImagesNeedingArtisticScore(limit = 10) {
+        const stmt = this.db.prepare(`
+            SELECT * FROM images
+            WHERE is_deleted = 0
+            AND artistic_score IS NULL
+            LIMIT ?
+        `);
+        return stmt.all(limit);
+    }
+
     // Location operations
     getImagesNeedingLocation(limit = 10) {
         const stmt = this.db.prepare(`

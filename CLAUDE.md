@@ -28,11 +28,11 @@ No test framework or linter is configured.
 
 **Indexer** — `scanner.js` walks the photo directory and extracts EXIF via `exifreader`. `metadata.js` handles EXIF parsing. `watcher.js` uses `chokidar` for live filesystem monitoring. `resizePipeline.js` handles 4K downscaling via `sharp`.
 
-**Slideshow Engine (`src/slideshow/engine.js`)** — Core navigation logic. Supports sequential, random, and smart (weighted random favoring favorites, recent photos, "this day in history") modes. Maintains back/forward navigation stacks. Preloads configurable number of upcoming images.
+**Slideshow Engine (`src/slideshow/engine.js`)** — Core navigation logic. Supports sequential, random, smart (weighted random favoring favorites, recent photos, "this day in history"), and artistic (sorted by AI artistic score) modes. Maintains back/forward navigation stacks. Preloads configurable number of upcoming images.
 
 **Routes** — `routes/images.js` serves image files (with HEIF-to-JPEG conversion fallback), handles navigation (next/prev/goto), favorites, rotation, deletion. `routes/settings.js` handles slideshow settings CRUD.
 
-**Services** — `geolocation.js` does reverse geocoding from GPS EXIF data. `imageRotation.js` handles lossless JPEG rotation.
+**Services** — `geolocation.js` does reverse geocoding from GPS EXIF data. `imageRotation.js` handles lossless JPEG rotation. `artisticScoring.js` sends photos to Claude Vision API for artistic quality scoring (1–1,000,000 scale).
 
 **Frontend (`src/public/`)** — Single-page app with `index.html`, `css/style.css`, and `js/app.js`. Connects to server via SSE for real-time image updates. Includes a `/remote` control interface.
 

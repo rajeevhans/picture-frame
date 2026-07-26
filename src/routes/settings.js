@@ -22,8 +22,8 @@ function createSettingsRoutes(db, slideshowEngine, broadcastUpdate, updateServer
             const updates = {};
 
             if (req.body.mode !== undefined) {
-                if (!['sequential', 'random', 'smart'].includes(req.body.mode)) {
-                    return res.status(400).json({ error: 'Invalid mode. Must be sequential, random, or smart' });
+                if (!['sequential', 'random', 'smart', 'artistic'].includes(req.body.mode)) {
+                    return res.status(400).json({ error: 'Invalid mode. Must be sequential, random, smart, or artistic' });
                 }
                 updates.mode = req.body.mode;
             }

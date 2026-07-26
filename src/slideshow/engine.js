@@ -72,6 +72,8 @@ class SlideshowEngine {
         } else if (this.settings.mode === 'smart') {
             // For smart mode, we'll get all images and apply weighting
             options.orderBy = this.settings.order;
+        } else if (this.settings.mode === 'artistic') {
+            options.orderBy = 'artisticScore';
         }
 
         this.imageList = this.db.getAllImages(options);
@@ -314,7 +316,11 @@ class SlideshowEngine {
             cameraModel: image.camera_model,
             cameraMake: image.camera_make,
             isFavorite: image.is_favorite === 1,
-            tags: image.tags ? JSON.parse(image.tags) : []
+            tags: image.tags ? JSON.parse(image.tags) : [],
+            artisticScore: image.artistic_score || null,
+            artisticScoreDetails: image.artistic_score_details
+                ? JSON.parse(image.artistic_score_details)
+                : null
         };
     }
 

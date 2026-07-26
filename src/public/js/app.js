@@ -59,6 +59,7 @@ const elements = {
     infoCamera: document.getElementById('infoCamera'),
     infoResolution: document.getElementById('infoResolution'),
     infoTags: document.getElementById('infoTags'),
+    infoArtisticScore: document.getElementById('infoArtisticScore'),
     
     // Stats
     statTotal: document.getElementById('statTotal'),
@@ -787,6 +788,19 @@ function updateInfoOverlay(image) {
         elements.infoTags.textContent = image.tags.join(', ');
     } else {
         elements.infoTags.textContent = '-';
+    }
+
+    // Artistic Score
+    if (image.artisticScore != null) {
+        let scoreText = image.artisticScore.toLocaleString() + ' / 1,000,000';
+        if (image.artisticScoreDetails) {
+            const d = image.artisticScoreDetails;
+            const fmt = (n) => n >= 1000 ? Math.round(n / 1000) + 'K' : n;
+            scoreText += ` (Comp: ${fmt(d.composition)}, Light: ${fmt(d.lighting)}, Color: ${fmt(d.color)})`;
+        }
+        elements.infoArtisticScore.textContent = scoreText;
+    } else {
+        elements.infoArtisticScore.textContent = 'Not scored';
     }
 }
 

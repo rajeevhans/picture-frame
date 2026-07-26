@@ -8,6 +8,7 @@ const DirectoryScanner = require('./indexer/scanner');
 const FileWatcher = require('./indexer/watcher');
 const SlideshowEngine = require('./slideshow/engine');
 const GeolocationService = require('./services/geolocation');
+const ArtisticScoringService = require('./services/artisticScoring');
 const createImageRoutes = require('./routes/images');
 const createSettingsRoutes = require('./routes/settings');
 
@@ -35,6 +36,11 @@ const slideshowEngine = new SlideshowEngine(db, config);
 
 // Initialize geolocation service
 const geoService = new GeolocationService();
+
+// Initialize artistic scoring service (if enabled)
+const artisticScoringService = config.artisticScore?.enabled
+    ? new ArtisticScoringService(config.artisticScore)
+    : null;
 
 // SSE clients for broadcasting updates
 const sseClients = new Set();
@@ -393,6 +399,11 @@ async function startServer() {
             startGeolocationLookup();
         }
 
+        // Start background artistic scoring
+        if (!forceIndex && artisticScoringService && config.artisticScore?.runOnStartup) {
+            startArtisticScoring();
+        }
+
         // Run 4K resize in background when Electron app starts (or when config says so)
         const runResizeOnStartup = config.resize?.runOnStartup ?? (process.env.ELECTRON_APP === '1');
         if (!forceIndex && runResizeOnStartup) {
@@ -419,6 +430,35 @@ async function startServer() {
         }, 5000); // Wait 5 seconds after startup
     }
     
+    // Background artistic scoring
+    async function startArtisticScoring() {
+        setTimeout(async () => {
+            await processArtisticScoringBatch();
+        }, 10000); // Wait 10 seconds after startup
+    }
+
+    async function processArtisticScoringBatch() {
+        const batchSize = config.artisticScore?.batchSize || 50;
+        const imagesToScore = db.getImagesNeedingArtisticScore(batchSize);
+
+        if (imagesToScore.length > 0) {
+            const remaining = db.getImagesNeedingArtisticScore(10000).length;
+            console.log(`Starting artistic scoring: ${imagesToScore.length} images (${remaining} total remaining)...`);
+
+            await artisticScoringService.batchScore(imagesToScore, (id, scores) => {
+                return db.updateImage(id, scores);
+            });
+
+            const stillRemaining = db.getImagesNeedingArtisticScore(1).length;
+            if (stillRemaining > 0) {
+                console.log(`Artistic scoring: scheduling next batch in 10 seconds...`);
+                setTimeout(() => processArtisticScoringBatch(), 10000);
+            } else {
+                console.log(`✓ All artistic scoring complete!`);
+            }
+        }
+    }
+
     // Process geolocation in batches continuously
     async function processGeolocationBatch() {
         const batchSize = 100;

@@ -11,7 +11,15 @@
     "defaultOrder": "date",
     "numberOfImagesToPreload": 15
   },
-  "fileExtensions": [".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif"],
+  "fileExtensions": [
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".webp",
+    ".heic",
+    ".heif"
+  ],
   "indexing": {
     "batchSize": 100,
     "logInterval": 500
@@ -23,7 +31,14 @@
     "maxWidth": 3840,
     "maxHeight": 2160,
     "runOnStartup": true
+  },
+  "artisticScore": {
+    "enabled": false,
+    "apiKey": null,
+    "model": "claude-sonnet-4-20250514",
+    "batchSize": 50,
+    "rateLimitMs": 1000,
+    "maxImageSize": 1024,
+    "runOnStartup": true
   }
 }
-
-
