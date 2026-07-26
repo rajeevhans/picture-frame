@@ -35,9 +35,13 @@ function createLoginRoutes(config) {
         }
     }
 
+    function escapeHtml(s) {
+        return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    }
+
     function loginPage(nextUrl, error) {
         const safeNext = String(nextUrl || '/').replace(/"/g, '&quot;');
-        const errHtml = error ? `<p class="err">${error}</p>` : '';
+        const errHtml = error ? `<p class="err">${escapeHtml(error)}</p>` : '';
         return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Picture Frame — Sign in</title>
