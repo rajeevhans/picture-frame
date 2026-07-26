@@ -1,10 +1,18 @@
 const express = require('express');
-const { spawn } = require('child_process');
-const path = require('path');
-const { PROJECT_ROOT } = require('../lib/paths');
 const { imageMessage, settingsMessage } = require('../lib/messages');
 const { SettingsValidationError } = require('../slideshow/engine');
 const router = express.Router();
+
+/**
+ * True when the process is managed by something that will restart it on
+ * exit: systemd (INVOCATION_ID / JOURNAL_STREAM set) or the Electron
+ * wrapper (ELECTRON_APP=1, whose child-death handler relaunches the server).
+ */
+function isSupervised() {
+    return process.env.ELECTRON_APP === '1'
+        || !!process.env.INVOCATION_ID
+        || !!process.env.JOURNAL_STREAM;
+}
 
 function createSettingsRoutes(db, slideshowEngine, broadcastMessage, updateServerSlideshowInterval) {
     // Get current settings
@@ -73,21 +81,26 @@ function createSettingsRoutes(db, slideshowEngine, broadcastMessage, updateServe
         }
     });
 
-    // Restart the photo frame process
+    // Restart the photo frame process by exiting cleanly and letting the
+    // supervisor (systemd / Electron) respawn it.
     router.post('/restart', (req, res) => {
         try {
-            res.json({ success: true, message: 'Restarting...' });
+            const supervised = isSupervised();
+            res.json({
+                success: true,
+                message: supervised
+                    ? 'Restarting...'
+                    : 'Exiting. No supervisor detected — the server will not restart on its own.'
+            });
 
-            // Delay restart to allow response to be sent
+            // Delay exit to allow the response to flush.
             setTimeout(() => {
-                console.log('Restart requested, spawning replacement process...');
-                const serverPath = path.join(PROJECT_ROOT, 'src', 'server.js');
-                const child = spawn(process.argv[0], [serverPath, ...process.argv.slice(2)], {
-                    stdio: 'inherit',
-                    detached: true,
-                    cwd: PROJECT_ROOT
-                });
-                child.unref();
+                if (supervised) {
+                    console.log('Restart requested; exiting for supervisor to respawn...');
+                } else {
+                    console.warn('Restart requested but no supervisor detected '
+                        + '(not systemd/Electron). Exiting — start again with `npm start`.');
+                }
                 process.exit(0);
             }, 500);
         } catch (error) {
