@@ -11,6 +11,8 @@ const SlideshowEngine = require('./slideshow/engine');
 const GeolocationService = require('./services/geolocation');
 const createImageRoutes = require('./routes/images');
 const createSettingsRoutes = require('./routes/settings');
+const { createAuthMiddleware } = require('./middleware/auth');
+const createLoginRoutes = require('./routes/login');
 
 // Load configuration (~/picframe-config.json or config.json)
 const config = loadConfig();
@@ -25,6 +27,7 @@ if (config.auth && config.auth.enabled && !config.auth.secret) {
 // Initialize Express app
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
 // Resolve paths (centralized in src/lib/paths.js)
 const dbPath = resolveDbPath(config);
@@ -69,6 +72,11 @@ const forceIndex = args.includes('--index') || args.includes('-i');
 const devMode = args.includes('--dev');
 
 slideshowEngine.initialize();
+
+// Login routes (always reachable) then the auth gate. Everything mounted
+// after this point is protected for non-loopback clients when auth is on.
+app.use(createLoginRoutes(config));
+app.use(createAuthMiddleware(config));
 
 // API Routes
 app.use('/api/image', createImageRoutes(db, slideshowEngine, {
