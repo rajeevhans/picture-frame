@@ -15,6 +15,13 @@ const createSettingsRoutes = require('./routes/settings');
 // Load configuration (~/picframe-config.json or config.json)
 const config = loadConfig();
 
+// Auth sanity check: enabled but no secret → fail OPEN with a loud warning so
+// the frame is never bricked into a locked-out state.
+if (config.auth && config.auth.enabled && !config.auth.secret) {
+    console.warn('⚠  auth.enabled is true but auth.secret is not set — '
+        + 'authentication is DISABLED. Set auth.secret in ~/picframe-config.json.');
+}
+
 // Initialize Express app
 const app = express();
 app.use(express.json());

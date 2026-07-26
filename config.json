@@ -20,6 +20,12 @@
     "maxWidth": 3840,
     "maxHeight": 2160,
     "runOnStartup": true
+  },
+  "auth": {
+    "enabled": false,
+    "secret": null,
+    "trustLoopback": true,
+    "cookieName": "pf_auth"
   }
 }
 
