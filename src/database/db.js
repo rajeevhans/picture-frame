@@ -75,6 +75,7 @@ class DatabaseManager {
             fs.mkdirSync(dbDir, { recursive: true });
         }
 
+        this.dbPath = dbPath;
         this.db = new Database(dbPath);
         this.db.pragma('journal_mode = WAL');
         this.db.pragma('synchronous = NORMAL');
@@ -399,6 +400,29 @@ class DatabaseManager {
      */
     formatImage(row) {
         return formatImage(row);
+    }
+
+    /**
+     * Reset the database in place: close the connection, delete the DB files
+     * (including WAL/SHM), then recreate an empty schema and reopen. The
+     * DatabaseManager instance identity is preserved, so every existing
+     * reference (routes, engine, scanner) stays valid.
+     */
+    reset() {
+        this.db.close();
+
+        for (const file of [this.dbPath, `${this.dbPath}-shm`, `${this.dbPath}-wal`]) {
+            if (fs.existsSync(file)) {
+                fs.unlinkSync(file);
+                console.log(`Deleted: ${file}`);
+            }
+        }
+
+        this.db = new Database(this.dbPath);
+        this.db.pragma('journal_mode = WAL');
+        this.db.pragma('synchronous = NORMAL');
+        this.db.pragma('cache_size = -64000');
+        this.initialize();
     }
 
     close() {

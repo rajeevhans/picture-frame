@@ -169,39 +169,20 @@ app.get('/remote', (req, res) => {
 app.post('/api/database/reset', async (req, res) => {
     try {
         console.log('Database reset requested...');
-        
-        // Close current database connection
-        db.close();
-        
-        // Delete database files
-        const dbFiles = [
-            dbPath,
-            `${dbPath}-shm`,
-            `${dbPath}-wal`
-        ];
-        
-        for (const file of dbFiles) {
-            if (fs.existsSync(file)) {
-                fs.unlinkSync(file);
-                console.log(`Deleted: ${file}`);
-            }
-        }
-        
-        // Reinitialize database (creates new one)
-        const DatabaseManager = require('./database/db');
-        const newDb = new DatabaseManager(dbPath);
-        Object.assign(db, newDb); // Replace old db instance
-        
+
+        // Reset the database in place (preserves the manager instance).
+        db.reset();
+
         // Re-index photos
         console.log('Re-indexing photos...');
         await scanner.scanDirectory(photoDir, { forceReindex: true });
-        
+
         // Refresh slideshow
         slideshowEngine.refreshImageList();
-        
+
         const stats = db.getStats();
         console.log('Database reset complete!');
-        
+
         res.json({
             success: true,
             message: 'Database reset and re-indexed successfully',
