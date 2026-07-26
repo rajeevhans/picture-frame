@@ -506,6 +506,81 @@ class DatabaseManager {
         return stmt.run(Date.now(), id);
     }
 
+    // Duplicate-detection: grouping
+    getExactDuplicateGroups() {
+        const rows = this.db.prepare(`
+            SELECT content_hash, GROUP_CONCAT(id) AS ids
+            FROM images
+            WHERE content_hash IS NOT NULL
+            GROUP BY content_hash HAVING COUNT(*) > 1
+        `).all();
+        return rows.map(r => ({ contentHash: r.content_hash, ids: r.ids.split(',').map(Number) }));
+    }
+
+    getImagesWithPerceptualHash() {
+        return this.db.prepare(
+            'SELECT id, perceptual_hash, content_hash FROM images WHERE perceptual_hash IS NOT NULL'
+        ).all();
+    }
+
+    getImagesByIds(ids) {
+        if (!ids.length) return [];
+        const placeholders = ids.map(() => '?').join(',');
+        return this.db.prepare(`SELECT * FROM images WHERE id IN (${placeholders})`).all(...ids);
+    }
+
+    clearDuplicateGroups() {
+        return this.db.prepare('DELETE FROM duplicate_group_members').run();
+    }
+
+    insertGroupMembers(rows) {
+        const stmt = this.db.prepare(`
+            INSERT OR REPLACE INTO duplicate_group_members
+                (group_id, image_id, group_type, is_suggested_keeper, is_oversized, is_auto_eligible)
+            VALUES (@groupId, @imageId, @groupType, @isSuggestedKeeper, @isOversized, @isAutoEligible)
+        `);
+        const insert = this.db.transaction((rs) => { for (const r of rs) stmt.run(r); });
+        return insert(rows);
+    }
+
+    /** All current groups with their member image rows joined, for the review UI. */
+    getDuplicateGroups() {
+        const members = this.db.prepare(`
+            SELECT m.group_id, m.image_id, m.group_type, m.is_suggested_keeper, m.is_oversized, m.is_auto_eligible,
+                   i.filepath, i.filename, i.width, i.height, i.is_favorite, i.artistic_score, i.date_taken
+            FROM duplicate_group_members m JOIN images i ON i.id = m.image_id
+            ORDER BY m.group_id, m.image_id
+        `).all();
+        const groups = new Map();
+        for (const m of members) {
+            if (!groups.has(m.group_id)) {
+                groups.set(m.group_id, { groupId: m.group_id, groupType: m.group_type, oversized: !!m.is_oversized, autoEligible: !!m.is_auto_eligible, members: [] });
+            }
+            groups.get(m.group_id).members.push({
+                id: m.image_id, filename: m.filename, width: m.width, height: m.height,
+                isFavorite: m.is_favorite === 1, artisticScore: m.artistic_score,
+                dateTaken: m.date_taken, isSuggestedKeeper: m.is_suggested_keeper === 1
+            });
+        }
+        return Array.from(groups.values());
+    }
+
+    getDuplicateGroupSummary() {
+        const row = this.db.prepare(`
+            SELECT
+              COUNT(DISTINCT CASE WHEN group_type='exact' THEN group_id END) AS exactGroups,
+              COUNT(DISTINCT CASE WHEN group_type='similar' THEN group_id END) AS similarGroups
+            FROM duplicate_group_members
+        `).get();
+        return { exactGroups: row.exactGroups || 0, similarGroups: row.similarGroups || 0 };
+    }
+
+    removeImagesFromGroups(ids) {
+        if (!ids.length) return;
+        const placeholders = ids.map(() => '?').join(',');
+        this.db.prepare(`DELETE FROM duplicate_group_members WHERE image_id IN (${placeholders})`).run(...ids);
+    }
+
     // Location operations
     getImagesNeedingLocation(limit = 10) {
         const stmt = this.db.prepare(`
