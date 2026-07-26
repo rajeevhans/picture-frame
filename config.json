@@ -38,5 +38,11 @@
     "rateLimitMs": 1000,
     "maxImageSize": 1024,
     "runOnStartup": true
+  },
+  "duplicates": {
+    "similarThreshold": 10,
+    "similarAutoThreshold": 5,
+    "maxGroupSize": 25,
+    "hashBatchSize": 100
   }
 }
