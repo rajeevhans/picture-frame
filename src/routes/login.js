@@ -71,7 +71,8 @@ function createLoginRoutes(config) {
 
     router.post('/login', (req, res) => {
         const ip = (req.socket && req.socket.remoteAddress) || 'unknown';
-        const nextUrl = (req.body && req.body.next) || '/';
+        const rawNext = (req.body && req.body.next) || '/';
+        const nextUrl = Array.isArray(rawNext) ? String(rawNext[0] || '/') : String(rawNext);
 
         if (tooManyAttempts(ip)) {
             return res.status(429).set('Content-Type', 'text/html')

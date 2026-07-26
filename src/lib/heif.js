@@ -130,7 +130,7 @@ async function getCachedJpegPath(inputPath, cacheKey, quality = DEFAULT_QUALITY)
         return cachedPath; // hit
     } catch (_) {
         // miss — convert into a temp file, then atomically rename into place
-        const tempPath = `${cachedPath}.tmp`;
+        const tempPath = `${cachedPath}.${process.pid}.${Date.now()}.tmp`;
         await convertHeifToFile(inputPath, tempPath, quality);
         await fs.promises.rename(tempPath, cachedPath);
         return cachedPath;
