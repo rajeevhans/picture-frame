@@ -221,6 +221,41 @@ sudo journalctl -u pictureframe-display.service -f
 
 Create `~/picframe-config.json` with any subset of options to override the project defaults. Partial overrides work via deep merge — you only need to include the fields you want to change.
 
+## Authentication
+
+The picture frame supports an optional shared-secret gate. The **physical
+frame display is always open over loopback** (`127.0.0.1`), so the wall-mounted
+screen never needs a login. Every other client — LAN browsers, the phone
+remote, Stream Deck — must present the secret when auth is enabled.
+
+Enable it in `~/picframe-config.json`:
+
+```json
+{
+  "auth": {
+    "enabled": true,
+    "secret": "your-access-code",
+    "trustLoopback": true,
+    "cookieName": "pf_auth"
+  }
+}
+```
+
+- `enabled` — turn the gate on. If `enabled` is true but `secret` is empty,
+  auth **fails open** (disabled) with a startup warning, so the frame is never
+  locked out.
+- `secret` — the shared access code / PIN.
+- `trustLoopback` — when true (default), requests from the device itself
+  bypass auth. Set to false to challenge even local browsers.
+
+**How clients authenticate:**
+- Browsers: visit any protected page and you are redirected to `/login`;
+  entering the code sets an HttpOnly cookie for a year.
+- API clients (Stream Deck, scripts): send `Authorization: Bearer <secret>`
+  or `X-Auth-Token: <secret>`.
+
+Login is rate-limited to 10 attempts per 5 minutes per IP.
+
 ### Slideshow Modes
 
 1. **Sequential**:

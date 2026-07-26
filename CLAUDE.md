@@ -40,6 +40,8 @@ No test framework or linter is configured.
 - `src/routes/images.js` — Image CRUD, serving (with HEIF-to-JPEG conversion), rotation, download, favorites, soft delete (moves to `data/deleted/`)
 - `src/routes/settings.js` — Slideshow settings CRUD
 
+**Auth** (`src/middleware/auth.js`, `src/routes/login.js`): Optional shared-secret gate. Loopback (the physical frame) is always allowed when `auth.trustLoopback` is set; all other clients must present `config.auth.secret` via the `pf_auth` cookie (set by `/login`), `Authorization: Bearer`, or `X-Auth-Token`. Fails open when disabled or unconfigured. Configured under `auth` in config.
+
 **Services**:
 - `src/services/geolocation.js` — Background reverse geocoding via OpenStreetMap Nominatim (rate-limited 1 req/sec)
 - `src/services/imageRotation.js` — Physical image rotation via Sharp
