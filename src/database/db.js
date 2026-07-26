@@ -581,6 +581,68 @@ class DatabaseManager {
         this.db.prepare(`DELETE FROM duplicate_group_members WHERE image_id IN (${placeholders})`).run(...ids);
     }
 
+    /**
+     * Keep policy: highest resolution, then highest artistic_score (nulls last),
+     * then earliest date_taken (nulls last). Returns the id to retain.
+     */
+    pickKeeper(ids) {
+        const rows = this.getImagesByIds(ids);
+        rows.sort((a, b) => {
+            const areaA = (a.width || 0) * (a.height || 0);
+            const areaB = (b.width || 0) * (b.height || 0);
+            if (areaA !== areaB) return areaB - areaA;
+            const sa = a.artistic_score == null ? -1 : a.artistic_score;
+            const sb = b.artistic_score == null ? -1 : b.artistic_score;
+            if (sa !== sb) return sb - sa;
+            const da = a.date_taken || '9999';
+            const db_ = b.date_taken || '9999';
+            if (da < db_) return -1;
+            if (da > db_) return 1;
+            return a.id - b.id; // stable tiebreak
+        });
+        return rows.length ? rows[0].id : null;
+    }
+
+    /**
+     * Carry metadata from soon-to-be-deleted duplicates onto the keeper, in a
+     * transaction. Sets keeper favorite if any deleted copy was; unions tags;
+     * copies artistic_score (+ details) if keeper lacks one. Does NOT delete.
+     */
+    applyDuplicateCarryover(keeperId, deleteIds) {
+        const tx = this.db.transaction(() => {
+            const keeper = this.db.prepare('SELECT * FROM images WHERE id = ?').get(keeperId);
+            if (!keeper) return;
+            const deleted = this.getImagesByIds(deleteIds);
+
+            let favorite = keeper.is_favorite === 1;
+            const tagSet = new Set(keeper.tags ? JSON.parse(keeper.tags) : []);
+            let score = keeper.artistic_score;
+            let scoreDetails = keeper.artistic_score_details;
+
+            for (const d of deleted) {
+                if (d.is_favorite === 1) favorite = true;
+                if (d.tags) { for (const t of JSON.parse(d.tags)) tagSet.add(t); }
+                if (score == null && d.artistic_score != null) {
+                    score = d.artistic_score;
+                    scoreDetails = d.artistic_score_details;
+                }
+            }
+
+            this.db.prepare(`
+                UPDATE images SET is_favorite = ?, tags = ?, artistic_score = ?, artistic_score_details = ?, updated_at = ?
+                WHERE id = ?
+            `).run(
+                favorite ? 1 : 0,
+                tagSet.size ? JSON.stringify(Array.from(tagSet)) : null,
+                score == null ? null : score,
+                scoreDetails == null ? null : scoreDetails,
+                Date.now(),
+                keeperId
+            );
+        });
+        return tx();
+    }
+
     // Location operations
     getImagesNeedingLocation(limit = 10) {
         const stmt = this.db.prepare(`
