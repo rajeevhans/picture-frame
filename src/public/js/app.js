@@ -64,8 +64,7 @@ const elements = {
     // Stats
     statTotal: document.getElementById('statTotal'),
     statFavorites: document.getElementById('statFavorites'),
-    statDeleted: document.getElementById('statDeleted'),
-    
+
     // Matting
     mattingBackground: document.getElementById('mattingBackground')
 };
@@ -489,7 +488,6 @@ async function loadStats() {
         const stats = await apiCall('/stats');
         elements.statTotal.textContent = stats.total;
         elements.statFavorites.textContent = stats.favorites;
-        elements.statDeleted.textContent = stats.deleted;
     } catch (error) {
         console.error('Failed to load stats:', error);
     }

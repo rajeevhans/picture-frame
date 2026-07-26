@@ -172,7 +172,7 @@ async function benchmarkDatabase(dbPath) {
     const db = new Database(dbPath);
     db.pragma('journal_mode = WAL');
 
-    const count = db.prepare('SELECT COUNT(*) as c FROM images WHERE is_deleted = 0').get().c;
+    const count = db.prepare('SELECT COUNT(*) as c FROM images').get().c;
     console.log(`  Images in DB: ${count}`);
 
     if (count === 0) {
@@ -182,12 +182,12 @@ async function benchmarkDatabase(dbPath) {
 
     // getAllImages - date order (uses index)
     run('getAllImages ORDER BY date (indexed)', () => {
-        db.prepare('SELECT * FROM images WHERE is_deleted = 0 ORDER BY date_taken DESC LIMIT 100').all();
+        db.prepare('SELECT * FROM images ORDER BY date_taken DESC LIMIT 100').all();
     }, 20);
 
     // getAllImages - RANDOM (full scan + sort)
     run('getAllImages ORDER BY RANDOM() (slow)', () => {
-        db.prepare('SELECT * FROM images WHERE is_deleted = 0 ORDER BY RANDOM() LIMIT 1').get();
+        db.prepare('SELECT * FROM images ORDER BY RANDOM() LIMIT 1').get();
     }, 10);
 
     // getImageByPath (indexed)
@@ -198,7 +198,7 @@ async function benchmarkDatabase(dbPath) {
 
     // Orphan cleanup simulation - full scan + exists check
     run('Orphan check (all paths + existsSync)', () => {
-        const rows = db.prepare('SELECT id, filepath FROM images WHERE is_deleted = 0').all();
+        const rows = db.prepare('SELECT id, filepath FROM images').all();
         let checked = 0;
         for (const row of rows.slice(0, 100)) {
             if (fs.existsSync(row.filepath)) checked++;

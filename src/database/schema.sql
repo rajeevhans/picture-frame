@@ -18,7 +18,6 @@ CREATE TABLE IF NOT EXISTS images (
     camera_model TEXT,
     camera_make TEXT,
     is_favorite INTEGER DEFAULT 0,
-    is_deleted INTEGER DEFAULT 0,
     tags TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
@@ -28,7 +27,6 @@ CREATE TABLE IF NOT EXISTS images (
 CREATE INDEX IF NOT EXISTS idx_date_taken ON images(date_taken);
 CREATE INDEX IF NOT EXISTS idx_date_added ON images(date_added);
 CREATE INDEX IF NOT EXISTS idx_is_favorite ON images(is_favorite);
-CREATE INDEX IF NOT EXISTS idx_is_deleted ON images(is_deleted);
 CREATE INDEX IF NOT EXISTS idx_filename ON images(filename);
 CREATE INDEX IF NOT EXISTS idx_filepath ON images(filepath);
 

@@ -14,7 +14,7 @@ const path = require('path');
  *   - 'raw'   : no transformation (default)
  *
  * Columns only written by insertImage (e.g. created_at, updated_at) and
- * columns not exposed to clients (file_modified, is_deleted) are handled
+ * columns not exposed to clients (file_modified) are handled
  * directly in their specific methods and are not listed here.
  */
 const IMAGE_FIELD_MAP = {
@@ -34,7 +34,6 @@ const IMAGE_FIELD_MAP = {
     cameraModel:      { col: 'camera_model' },
     cameraMake:       { col: 'camera_make' },
     isFavorite:       { col: 'is_favorite', type: 'bool' },
-    isDeleted:        { col: 'is_deleted', type: 'bool' },
     tags:             { col: 'tags',        type: 'json' }
 };
 
@@ -42,7 +41,7 @@ const IMAGE_FIELD_MAP = {
  * Convert a raw DB row to the client-facing image shape. This is the
  * single source of truth for camelCase field names the frontend consumes.
  *
- * Note: fileModified, isDeleted, createdAt, updatedAt are intentionally
+ * Note: fileModified, createdAt, updatedAt are intentionally
  * omitted — they're server-side bookkeeping, not part of the public shape.
  */
 function formatImage(row) {
@@ -112,12 +111,12 @@ class DatabaseManager {
             INSERT OR REPLACE INTO images (
                 filepath, filename, file_modified, date_taken, date_added,
                 latitude, longitude, location_city, location_country, width, height, orientation, rotation,
-                camera_model, camera_make, is_favorite, is_deleted, tags,
+                camera_model, camera_make, is_favorite, tags,
                 created_at, updated_at
             ) VALUES (
                 @filepath, @filename, @fileModified, @dateTaken, @dateAdded,
                 @latitude, @longitude, @locationCity, @locationCountry, @width, @height, @orientation, @rotation,
-                @cameraModel, @cameraMake, @isFavorite, @isDeleted, @tags,
+                @cameraModel, @cameraMake, @isFavorite, @tags,
                 @createdAt, @updatedAt
             )
         `);
@@ -140,7 +139,6 @@ class DatabaseManager {
             cameraModel: imageData.cameraModel || null,
             cameraMake: imageData.cameraMake || null,
             isFavorite: imageData.isFavorite || 0,
-            isDeleted: imageData.isDeleted || 0,
             tags: imageData.tags ? JSON.stringify(imageData.tags) : null,
             createdAt: now,
             updatedAt: now
@@ -157,7 +155,7 @@ class DatabaseManager {
     }
 
     getImageById(id) {
-        const stmt = this.db.prepare('SELECT * FROM images WHERE id = ? AND is_deleted = 0');
+        const stmt = this.db.prepare('SELECT * FROM images WHERE id = ?');
         return stmt.get(id);
     }
 
@@ -167,7 +165,7 @@ class DatabaseManager {
     }
 
     getAllImages(options = {}) {
-        let query = 'SELECT * FROM images WHERE is_deleted = 0';
+        let query = 'SELECT * FROM images WHERE 1 = 1';
         const params = [];
 
         if (options.favoritesOnly) {
@@ -211,7 +209,7 @@ class DatabaseManager {
     }
 
     getImagesCount(favoritesOnly = false, thisDay = false) {
-        let query = 'SELECT COUNT(*) as count FROM images WHERE is_deleted = 0';
+        let query = 'SELECT COUNT(*) as count FROM images WHERE 1 = 1';
         if (favoritesOnly) {
             query += ' AND is_favorite = 1';
         }
@@ -235,11 +233,11 @@ class DatabaseManager {
      *
      * Only columns present in IMAGE_FIELD_MAP are updatable. Keys not in the
      * map are silently ignored (matches historical behavior, which only
-     * accepted isFavorite / isDeleted / tags / locationCity / locationCountry
+     * accepted isFavorite / tags / locationCity / locationCountry
      * / rotation).
      */
     updateImage(id, updates) {
-        const UPDATABLE = ['isFavorite', 'isDeleted', 'tags', 'locationCity', 'locationCountry', 'rotation'];
+        const UPDATABLE = ['isFavorite', 'tags', 'locationCity', 'locationCountry', 'rotation'];
         const fields = [];
         const values = { id, updatedAt: Date.now() };
 
@@ -275,7 +273,7 @@ class DatabaseManager {
     }
 
     getImagesNotResized(photoDirectory) {
-        const stmt = this.db.prepare('SELECT * FROM images WHERE is_deleted = 0');
+        const stmt = this.db.prepare('SELECT * FROM images');
         const all = stmt.all();
         const resizedDir = path.join(path.resolve(photoDirectory), 'resized');
         return all.filter(img => {
@@ -292,7 +290,7 @@ class DatabaseManager {
     
     // Check if image file exists and remove from DB if not
     cleanupOrphanedEntries(checkFileExists) {
-        const stmt = this.db.prepare('SELECT id, filepath FROM images WHERE is_deleted = 0');
+        const stmt = this.db.prepare('SELECT id, filepath FROM images');
         const images = stmt.all();
         let removedCount = 0;
         
@@ -359,18 +357,15 @@ class DatabaseManager {
     getStats() {
         const total = this.getImagesCount(false);
         const favorites = this.getImagesCount(true);
-        
+
         const dateRange = this.db.prepare(`
             SELECT MIN(date_taken) as earliest, MAX(date_taken) as latest
-            FROM images WHERE is_deleted = 0 AND date_taken IS NOT NULL
+            FROM images WHERE date_taken IS NOT NULL
         `).get();
-
-        const deletedCount = this.db.prepare('SELECT COUNT(*) as count FROM images WHERE is_deleted = 1').get().count;
 
         return {
             total,
             favorites,
-            deleted: deletedCount,
             earliestPhoto: dateRange.earliest,
             latestPhoto: dateRange.latest
         };
