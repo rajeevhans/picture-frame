@@ -565,6 +565,46 @@ class DatabaseManager {
         return Array.from(groups.values());
     }
 
+    /**
+     * Bounded view for the review UI: at most maxGroups groups; oversized groups
+     * return only a small member preview (with the true memberCount). Members are
+     * ordered so the suggested keeper is always included in the preview.
+     */
+    getDuplicateGroupsForReview(maxGroups = 150, previewForOversized = 8) {
+        const headers = this.db.prepare(`
+            SELECT group_id, group_type,
+                   MAX(is_oversized) AS oversized,
+                   MAX(is_auto_eligible) AS auto_eligible,
+                   COUNT(*) AS member_count
+            FROM duplicate_group_members
+            GROUP BY group_id ORDER BY group_id LIMIT ?
+        `).all(maxGroups + 1);
+        const truncated = headers.length > maxGroups;
+        const use = headers.slice(0, maxGroups);
+
+        const sel = `SELECT m.image_id, m.is_suggested_keeper,
+                   i.filename, i.width, i.height, i.is_favorite, i.artistic_score, i.date_taken
+            FROM duplicate_group_members m JOIN images i ON i.id = m.image_id
+            WHERE m.group_id = ? ORDER BY m.is_suggested_keeper DESC, m.image_id`;
+        const stmtAll = this.db.prepare(sel);
+        const stmtLimited = this.db.prepare(sel + ' LIMIT ?');
+
+        const groups = use.map(h => {
+            const rows = h.oversized ? stmtLimited.all(h.group_id, previewForOversized) : stmtAll.all(h.group_id);
+            return {
+                groupId: h.group_id, groupType: h.group_type,
+                oversized: !!h.oversized, autoEligible: !!h.auto_eligible,
+                memberCount: h.member_count,
+                members: rows.map(m => ({
+                    id: m.image_id, filename: m.filename, width: m.width, height: m.height,
+                    isFavorite: m.is_favorite === 1, artisticScore: m.artistic_score,
+                    dateTaken: m.date_taken, isSuggestedKeeper: m.is_suggested_keeper === 1
+                }))
+            };
+        });
+        return { groups, truncated };
+    }
+
     getDuplicateGroupSummary() {
         const row = this.db.prepare(`
             SELECT

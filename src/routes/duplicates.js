@@ -17,7 +17,7 @@ function createDuplicateRoutes(db, duplicateService, slideshowEngine, broadcastM
     });
 
     router.get('/groups', (req, res) => {
-        res.json({ groups: db.getDuplicateGroups() });
+        res.json(db.getDuplicateGroupsForReview());
     });
 
     router.post('/scan', (req, res) => {

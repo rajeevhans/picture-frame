@@ -15,8 +15,8 @@
         el('dupSummary').textContent =
             `${status.exactGroups || 0} exact group(s), ${status.similarGroups || 0} similar group(s).`;
         renderProgress(status);
-        const { groups } = await api('/groups');
-        renderGroups(groups);
+        const data = await api('/groups');
+        renderGroups(data.groups, data.truncated);
     }
 
     function renderProgress(s) {
@@ -32,13 +32,13 @@
         }
     }
 
-    function renderGroups(groups) {
+    function renderGroups(groups, truncated) {
         const container = el('dupGroups');
         container.innerHTML = '';
         for (const g of groups) {
             const div = document.createElement('div');
             div.className = 'dup-group';
-            const label = g.oversized ? `${g.groupType} (oversized — review only)` : g.groupType;
+            const label = `${g.groupType}${g.oversized ? ` — ${g.memberCount} images, review only` : ''}`;
             div.innerHTML = `<div class="dup-group-label">${label}</div>`;
             const row = document.createElement('div');
             row.className = 'dup-thumbs';
@@ -53,35 +53,50 @@
                 row.appendChild(fig);
             }
             div.appendChild(row);
-            const keeper = g.members.find(m => m.isSuggestedKeeper) || g.members[0];
-            const btn = document.createElement('button');
-            btn.className = 'btn';
-            btn.textContent = 'Keep suggested, delete the rest';
-            btn.onclick = async () => {
-                const deleteIds = g.members.filter(m => m.id !== keeper.id).map(m => m.id);
-                await api('/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ keeperId: keeper.id, deleteIds }) });
-                await refresh();
-            };
-            div.appendChild(btn);
+            if (!g.oversized) {
+                const keeper = g.members.find(m => m.isSuggestedKeeper) || g.members[0];
+                const btn = document.createElement('button');
+                btn.className = 'btn';
+                btn.textContent = 'Keep suggested, delete the rest';
+                btn.onclick = async () => {
+                    const deleteIds = g.members.filter(m => m.id !== keeper.id).map(m => m.id);
+                    await api('/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ keeperId: keeper.id, deleteIds }) });
+                    await refresh();
+                };
+                div.appendChild(btn);
+            }
             container.appendChild(div);
+        }
+        if (truncated) {
+            const note = document.createElement('div');
+            note.className = 'dup-note';
+            note.textContent = 'Showing the first 150 groups. Resolve some and re-scan to see more.';
+            container.appendChild(note);
         }
     }
 
     function init() {
         if (initialized) { refresh().catch(() => {}); return; }
         initialized = true;
-        el('dupScanBtn').onclick = async () => { await api('/scan', { method: 'POST' }); };
+        el('dupScanBtn').onclick = async () => {
+            try { await api('/scan', { method: 'POST' }); }
+            catch (e) { alert('Duplicates: ' + e.message); }
+        };
         el('dupAutoExact').onclick = async () => {
-            await api('/auto-resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ scope: 'exact' }) });
-            await refresh();
+            try {
+                await api('/auto-resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ scope: 'exact' }) });
+                await refresh();
+            } catch (e) { alert('Duplicates: ' + e.message); }
         };
         el('dupAutoSimilar').onclick = async () => {
             if (!confirm('Auto-resolve SIMILAR images? This deletes near-duplicates using the strict threshold. Continue?')) return;
-            await api('/auto-resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ scope: 'similar', confirm: true }) });
-            await refresh();
+            try {
+                await api('/auto-resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ scope: 'similar', confirm: true }) });
+                await refresh();
+            } catch (e) { alert('Duplicates: ' + e.message); }
         };
         refresh().catch(() => {});
     }

@@ -590,4 +590,17 @@ body.show-cursor {
     transition: opacity 0.5s ease-in-out;
 }
 
+/* Duplicate detection settings section */
+.dup-progress.hidden { display: none; }
+.dup-summary { font-size: 0.85rem; margin: 6px 0; opacity: 0.85; }
+.dup-actions { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+.dup-group { margin: 12px 0; padding: 8px 0; border-top: 1px solid #333; }
+.dup-group-label { font-size: 0.8rem; text-transform: uppercase; opacity: 0.7; margin-bottom: 6px; }
+.dup-thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
+.dup-thumb { margin: 0; width: 110px; }
+.dup-thumb img { width: 110px; height: 110px; object-fit: cover; border-radius: 4px; display: block; }
+.dup-thumb.keeper img { outline: 3px solid #4a7dff; }
+.dup-thumb figcaption { font-size: 0.72rem; line-height: 1.2; margin-top: 2px; }
+.dup-note { font-size: 0.8rem; opacity: 0.7; margin: 8px 0; }
+.btn-warn { background: #a33; color: #fff; }
 
