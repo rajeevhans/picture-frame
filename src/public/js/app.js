@@ -960,17 +960,22 @@ function sampleColorsFromPixels(data, sampleRate = 5) {
  * CORS-tainted draw, or no colors survived the light/dark filter.
  */
 async function extractDominantColors(imageElement, colorCount = 3) {
-    // Wait for load if needed — recurse once the image is ready.
+    // Wait for load if needed. Do NOT reassign imageElement.onload/onerror —
+    // that clobbers the display's own crossfade handlers. Extract from a
+    // detached clone with the same src so the live element is untouched.
     if (!imageElement.complete) {
-        console.warn('Image not complete, waiting...');
+        console.warn('Image not complete, extracting from a detached clone...');
         return new Promise((resolve) => {
-            imageElement.onload = () => {
-                extractDominantColors(imageElement, colorCount).then(resolve);
-            };
-            imageElement.onerror = () => {
+            const clone = new Image();
+            if (imageElement.crossOrigin) clone.crossOrigin = imageElement.crossOrigin;
+            clone.addEventListener('load', () => {
+                extractDominantColors(clone, colorCount).then(resolve);
+            }, { once: true });
+            clone.addEventListener('error', () => {
                 console.error('Image failed to load for color extraction');
                 resolve(FALLBACK_PALETTE_NORMAL);
-            };
+            }, { once: true });
+            clone.src = imageElement.src;
         });
     }
 
@@ -1184,8 +1189,11 @@ async function applyMattingBackground(imageElement) {
         // Create gradient from dominant colors
         // Use the colors to create gradients that complement the image
         const primaryColor = colors[0];
-        const secondaryColor = colors[colors.length > 1 ? 1 : colors[0]];
-        const tertiaryColor = colors[colors.length > 2 ? 2 : colors[0]];
+        // Fall back to the primary color when fewer than 3 were extracted.
+        // (The old code used a color OBJECT as an array index, yielding
+        // undefined and a crash on 1-2 color images.)
+        const secondaryColor = colors.length > 1 ? colors[1] : colors[0];
+        const tertiaryColor = colors.length > 2 ? colors[2] : colors[0];
         
         // Set base background color first
         const baseR = Math.max(30, Math.round(primaryColor.r * 0.7));
