@@ -32,7 +32,9 @@ CREATE INDEX IF NOT EXISTS idx_date_added ON images(date_added);
 CREATE INDEX IF NOT EXISTS idx_is_favorite ON images(is_favorite);
 CREATE INDEX IF NOT EXISTS idx_filename ON images(filename);
 CREATE INDEX IF NOT EXISTS idx_filepath ON images(filepath);
-CREATE INDEX IF NOT EXISTS idx_content_hash ON images(content_hash);
+-- NOTE: idx_content_hash is created in migrate() (after the column is added),
+-- NOT here — referencing content_hash in schema.sql would fail on pre-existing
+-- DBs whose images table predates the column (exec(schema) runs before migrate()).
 
 -- Settings table
 CREATE TABLE IF NOT EXISTS settings (
