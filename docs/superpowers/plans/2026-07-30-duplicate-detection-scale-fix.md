@@ -434,18 +434,20 @@ git commit -m "$(printf 'perf: detect similar dups via banding + atomic persist;
 
 - [ ] **Step 1: Change the default**
 
-In `config.json`, in the `duplicates` block, change `"similarThreshold": 10,` to `"similarThreshold": 8,`. Leave `similarAutoThreshold: 5`, `maxGroupSize: 25`, `hashBatchSize: 100`.
+In `config.json`, in the `duplicates` block, change `"similarThreshold": 10,` to `"similarThreshold": 7,`. Leave `similarAutoThreshold: 5`, `maxGroupSize: 25`, `hashBatchSize: 100`.
+
+**Why 7 (not 8):** banding uses `threshold+1` segments over 16 hex nibbles. Threshold 7 → 8 clean 8-bit (256-bucket) segments; threshold 8 → 9 segments forces two 4-bit (16-bucket) segments whose mega-buckets blow up candidate pairs. Measured: 150k in ~63s at threshold 7 vs ~5 min at 8.
 
 - [ ] **Step 2: Verify**
 ```bash
-node -e "const c=require('./src/config.js').loadConfig(); console.log(c.duplicates.similarThreshold, c.duplicates.similarThreshold===8?'PASS':'FAIL')"
+node -e "const c=require('./src/config.js').loadConfig(); console.log(c.duplicates.similarThreshold, c.duplicates.similarThreshold===7?'PASS':'FAIL')"
 ```
-Expected: `8 PASS`.
+Expected: `7 PASS`.
 
 - [ ] **Step 3: Commit**
 ```bash
 git add config.json
-git commit -m "$(printf 'chore: default similarThreshold 10 -> 8 (tighter, faster banding)\n\nCo-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>')"
+git commit -m "$(printf 'chore: default similarThreshold 10 -> 7 (clean 8-bit banding, faster)\n\nCo-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>')"
 ```
 
 ---
@@ -471,7 +473,7 @@ const tx=db.db.transaction(()=>{ let id=0;
 });
 tx();
 console.log('seeded', db.getImagesCount(), 'images');
-const svc=new Svc(db,{duplicates:{similarThreshold:8,similarAutoThreshold:5,maxGroupSize:25}},{});
+const svc=new Svc(db,{duplicates:{similarThreshold:7,similarAutoThreshold:5,maxGroupSize:25}},{});
 const t0=Date.now(); svc._detectGroups(); const secs=(Date.now()-t0)/1000;
 console.log('detect took', secs.toFixed(2),'s; summary:', JSON.stringify(db.getDuplicateGroupSummary()));
 console.log('under 60s:', secs<60?'PASS':'FAIL');
