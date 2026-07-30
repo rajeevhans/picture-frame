@@ -543,6 +543,25 @@ class DatabaseManager {
         return insert(rows);
     }
 
+    /**
+     * Atomically replace all duplicate-group rows in a single transaction, so an
+     * interrupted detection never leaves the table empty — the previous groups
+     * survive until the new set is fully ready.
+     */
+    replaceDuplicateGroups(rows) {
+        const del = this.db.prepare('DELETE FROM duplicate_group_members');
+        const ins = this.db.prepare(`
+            INSERT OR REPLACE INTO duplicate_group_members
+                (group_id, image_id, group_type, is_suggested_keeper, is_oversized, is_auto_eligible)
+            VALUES (@groupId, @imageId, @groupType, @isSuggestedKeeper, @isOversized, @isAutoEligible)
+        `);
+        const tx = this.db.transaction((rs) => {
+            del.run();
+            for (const r of rs) ins.run(r);
+        });
+        return tx(rows);
+    }
+
     /** All current groups with their member image rows joined, for the review UI. */
     getDuplicateGroups() {
         const members = this.db.prepare(`
