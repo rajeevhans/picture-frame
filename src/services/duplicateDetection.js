@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const fs = require('fs');
-const BKTree = require('../lib/bkTree');
+const { groupSimilar } = require('../lib/similarGroups');
 const { hammingDistance } = require('../lib/perceptualHash');
 const { duplicateScanMessage } = require('../lib/messages');
 
@@ -65,7 +65,6 @@ class DuplicateDetectionService {
     }
 
     _detectGroups() {
-        this.db.clearDuplicateGroups();
         let groupId = 0;
         const memberRows = [];
         const inExact = new Set();
@@ -84,35 +83,18 @@ class DuplicateDetectionService {
 
         // Similar groups via BK-tree + union-find (skip images already exact-grouped)
         const rows = this.db.getImagesWithPerceptualHash().filter(r => !inExact.has(r.id));
-        const threshold = this.cfg.similarThreshold ?? 10;
+        const threshold = this.cfg.similarThreshold ?? 7;
         const autoThreshold = this.cfg.similarAutoThreshold ?? 5;
         const maxGroupSize = this.cfg.maxGroupSize ?? 25;
         const idToHash = new Map(rows.map(r => [r.id, r.perceptual_hash]));
 
-        const tree = new BKTree(hammingDistance);
-        for (const r of rows) tree.insert(r.perceptual_hash, r.id);
-
-        const parent = new Map();
-        const find = (x) => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
-        const union = (a, b) => { parent.set(find(a), find(b)); };
-        for (const r of rows) parent.set(r.id, r.id);
-
-        for (const r of rows) {
-            const neighbors = tree.query(r.perceptual_hash, threshold);
-            for (const n of neighbors) {
-                if (n.value !== r.id) union(r.id, n.value);
-            }
-        }
-
-        const components = new Map();
-        for (const r of rows) {
-            const root = find(r.id);
-            if (!components.has(root)) components.set(root, []);
-            components.get(root).push(r.id);
-        }
+        const components = groupSimilar(
+            rows.map(r => ({ id: r.id, hash: r.perceptual_hash })),
+            threshold
+        );
 
         let similarCount = 0;
-        for (const ids of components.values()) {
+        for (const ids of components) {
             if (ids.length < 2) continue;
             similarCount++;
             groupId++;
@@ -127,7 +109,8 @@ class DuplicateDetectionService {
         }
         this.state.similarGroups = similarCount;
 
-        if (memberRows.length) this.db.insertGroupMembers(memberRows);
+        // Atomic swap: prior groups survive until the new set is fully built.
+        this.db.replaceDuplicateGroups(memberRows);
     }
 
     /** True if `ids` form one connected component under Hamming <= threshold. */
