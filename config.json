@@ -11,7 +11,15 @@
     "defaultOrder": "date",
     "numberOfImagesToPreload": 15
   },
-  "fileExtensions": [".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif"],
+  "fileExtensions": [
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".webp",
+    ".heic",
+    ".heif"
+  ],
   "indexing": {
     "batchSize": 100,
     "logInterval": 500
@@ -40,7 +48,7 @@
     "runOnStartup": true
   },
   "duplicates": {
-    "similarThreshold": 10,
+    "similarThreshold": 7,
     "similarAutoThreshold": 5,
     "maxGroupSize": 25,
     "hashBatchSize": 100
