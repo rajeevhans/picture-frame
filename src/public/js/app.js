@@ -12,7 +12,8 @@ const state = {
     infoVisible: false,
     eventSource: null,
     deleteTimeout: null,
-    pendingDeletion: null
+    pendingDeletion: null,
+    toastTimer: null
 };
 
 // DOM elements
@@ -28,6 +29,7 @@ const elements = {
     locationText: document.getElementById('locationText'),
     settingsPanel: document.getElementById('settingsPanel'),
     clockTime: document.getElementById('clockTime'),
+    toast: document.getElementById('toast'),
     
     // Controls
     prevBtn: document.getElementById('prevBtn'),
@@ -135,8 +137,7 @@ function handleSSEMessage(data) {
         case 'favorite':
             // Update favorite status
             if (state.currentImage && state.currentImage.id === data.imageId) {
-                state.currentImage.isFavorite = data.isFavorite;
-                updateFavoriteButton();
+                setCurrentFavorite(data.isFavorite);
             }
             break;
             
@@ -273,8 +274,7 @@ async function toggleFavorite() {
             method: 'POST'
         });
         
-        state.currentImage.isFavorite = data.isFavorite;
-        updateFavoriteButton();
+        setCurrentFavorite(data.isFavorite);
     } catch (error) {
         console.error('Failed to toggle favorite:', error);
     }
@@ -864,6 +864,24 @@ function updateLocationOverlay(image) {
     }
 }
 
+// The local API response and the SSE broadcast both report the new value;
+// only the first one to arrive changes it, so the toast shows once.
+function setCurrentFavorite(isFavorite) {
+    const changed = state.currentImage.isFavorite !== isFavorite;
+    state.currentImage.isFavorite = isFavorite;
+    updateFavoriteButton();
+    if (changed) showToast(isFavorite ? '♥ Added to favorites' : '♡ Removed from favorites');
+}
+
+function showToast(message) {
+    elements.toast.textContent = message;
+    elements.toast.classList.add('visible');
+    clearTimeout(state.toastTimer);
+    state.toastTimer = setTimeout(() => {
+        elements.toast.classList.remove('visible');
+    }, 1800);
+}
+
 function updateFavoriteButton() {
     if (state.currentImage && state.currentImage.isFavorite) {
         elements.favoriteBtn.classList.add('favorite');
@@ -920,7 +938,12 @@ async function rotateImage(direction) {
 
 function updateSettings(settings) {
     if (!settings) return;
-    
+
+    // Skip the initial load; after that, announce filter changes from any source (shortcut, panel, remote)
+    if (state.settings && state.settings.favoritesOnly !== settings.favoritesOnly) {
+        showToast(settings.favoritesOnly ? '♥ Showing favorites only' : 'Showing all photos');
+    }
+
     state.settings = settings;
     
     // Update settings panel

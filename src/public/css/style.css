@@ -344,6 +344,31 @@ body.show-cursor {
     border-radius: 20px;
 }
 
+/* Transient feedback toast */
+.toast {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.9);
+    padding: 18px 32px;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(10px);
+    border-radius: 40px;
+    color: #fff;
+    font-size: 28px;
+    font-weight: 600;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    pointer-events: none;
+    z-index: 1100;
+}
+
+.toast.visible {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+}
+
 /* Settings page (full screen, tabbed) */
 .settings-panel {
     position: fixed;
