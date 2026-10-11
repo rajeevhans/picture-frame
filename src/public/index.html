@@ -150,103 +150,120 @@
         </div>
     </div>
 
-    <!-- Settings panel -->
+    <!-- Settings page (full screen, tabbed) -->
     <div id="settingsPanel" class="settings-panel hidden">
-        <div class="settings-content">
-            <h2>Slideshow Settings</h2>
-            
-            <div class="settings-group">
-                <label>Mode</label>
-                <select id="modeSelect">
-                    <option value="sequential">Sequential</option>
-                    <option value="random">Random</option>
-                    <option value="smart">Smart (Weighted)</option>
-                    <option value="artistic">Artistic (Best First)</option>
-                </select>
-            </div>
+        <header class="settings-header">
+            <h2>Settings</h2>
+            <nav class="settings-tabs" role="tablist">
+                <button class="settings-tab active" role="tab" data-tab="slideshow">Slideshow</button>
+                <button class="settings-tab" role="tab" data-tab="duplicates">Duplicates</button>
+                <button class="settings-tab" role="tab" data-tab="system">System</button>
+            </nav>
+            <button id="closeSettingsBtn" class="settings-close" title="Close (Esc)">&times;</button>
+        </header>
 
-            <div class="settings-group" id="orderGroup">
-                <label>Order</label>
-                <select id="orderSelect">
-                    <option value="date">By Date</option>
-                    <option value="filename">By Filename</option>
-                    <option value="random">Random</option>
-                    <option value="thisday">This Day in History</option>
-                </select>
-            </div>
-
-            <div class="settings-group">
-                <label>Interval (seconds)</label>
-                <select id="intervalSelect">
-                    <option value="5">5 seconds</option>
-                    <option value="10">10 seconds</option>
-                    <option value="15">15 seconds</option>
-                    <option value="30">30 seconds</option>
-                    <option value="60">1 minute</option>
-                    <option value="300">5 minutes</option>
-                </select>
-            </div>
-
-            <div class="settings-group">
-                <label>
-                    <input type="checkbox" id="favoritesOnlyCheck">
-                    Show favorites only
-                </label>
-            </div>
-
-            <div class="settings-group">
-                <label for="filterSqlTextarea">Filter SQL Query (optional)</label>
-                <textarea id="filterSqlTextarea" rows="3" placeholder="e.g. SELECT id FROM images WHERE tags LIKE '%vacation%'"></textarea>
-                <p class="settings-help">Query must return an <code>id</code> column from the images table. Leave empty to show all images.</p>
-            </div>
-
-            <div class="settings-group stats">
-                <h3>Statistics</h3>
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <span class="stat-label">Total Images:</span>
-                        <span id="statTotal" class="stat-value">-</span>
+        <div class="settings-body">
+            <section class="settings-tab-panel active" data-tab-panel="slideshow">
+                <div class="settings-content">
+                    <div class="settings-group">
+                        <label>Mode</label>
+                        <select id="modeSelect">
+                            <option value="sequential">Sequential</option>
+                            <option value="random">Random</option>
+                            <option value="smart">Smart (Weighted)</option>
+                            <option value="artistic">Artistic (Best First)</option>
+                        </select>
                     </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Favorites:</span>
-                        <span id="statFavorites" class="stat-value">-</span>
+
+                    <div class="settings-group" id="orderGroup">
+                        <label>Order</label>
+                        <select id="orderSelect">
+                            <option value="date">By Date</option>
+                            <option value="filename">By Filename</option>
+                            <option value="random">Random</option>
+                            <option value="thisday">This Day in History</option>
+                        </select>
+                    </div>
+
+                    <div class="settings-group">
+                        <label>Interval (seconds)</label>
+                        <select id="intervalSelect">
+                            <option value="5">5 seconds</option>
+                            <option value="10">10 seconds</option>
+                            <option value="15">15 seconds</option>
+                            <option value="30">30 seconds</option>
+                            <option value="60">1 minute</option>
+                            <option value="300">5 minutes</option>
+                        </select>
+                    </div>
+
+                    <div class="settings-group">
+                        <label>
+                            <input type="checkbox" id="favoritesOnlyCheck">
+                            Show favorites only
+                        </label>
+                    </div>
+
+                    <div class="settings-group">
+                        <label for="filterSqlTextarea">Filter SQL Query (optional)</label>
+                        <textarea id="filterSqlTextarea" rows="3" placeholder="e.g. SELECT id FROM images WHERE tags LIKE '%vacation%'"></textarea>
+                        <p class="settings-help">Query must return an <code>id</code> column from the images table. Leave empty to show all images.</p>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <div class="settings-group duplicates">
-                <h3>Duplicates</h3>
-                <button id="dupScanBtn" class="btn">Scan library for duplicates</button>
-                <div id="dupProgress" class="dup-progress hidden">
-                    <span id="dupPhase">idle</span>
-                    <progress id="dupBar" value="0" max="100"></progress>
-                    <span id="dupCounts"></span>
+            <section class="settings-tab-panel" data-tab-panel="duplicates">
+                <div class="settings-group duplicates">
+                    <div class="dup-toolbar">
+                        <button id="dupScanBtn" class="btn">Scan library for duplicates</button>
+                        <button id="dupAutoExact" class="btn">Auto-resolve exact duplicates</button>
+                        <button id="dupAutoSimilar" class="btn btn-warn">Auto-resolve similar…</button>
+                    </div>
+                    <div id="dupProgress" class="dup-progress hidden">
+                        <span id="dupPhase">idle</span>
+                        <progress id="dupBar" value="0" max="100"></progress>
+                        <span id="dupCounts"></span>
+                    </div>
+                    <div id="dupSummary" class="dup-summary"></div>
+                    <div id="dupGroups" class="dup-groups"></div>
                 </div>
-                <div id="dupSummary" class="dup-summary"></div>
-                <div class="dup-actions">
-                    <button id="dupAutoExact" class="btn">Auto-resolve exact duplicates</button>
-                    <button id="dupAutoSimilar" class="btn btn-warn">Auto-resolve similar…</button>
+            </section>
+
+            <section class="settings-tab-panel" data-tab-panel="system">
+                <div class="settings-content">
+                    <div class="settings-group stats">
+                        <h3>Statistics</h3>
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <span class="stat-label">Total Images:</span>
+                                <span id="statTotal" class="stat-value">-</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Favorites:</span>
+                                <span id="statFavorites" class="stat-value">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-group system">
+                        <h3>System</h3>
+                        <p class="system-text">Restart the photo frame to apply system changes or clear memory.</p>
+                        <button id="restartBtn" class="btn btn-secondary">Restart Photo Frame</button>
+                    </div>
+
+                    <div class="settings-group danger-zone">
+                        <h3>⚠️ Danger Zone</h3>
+                        <p class="warning-text">This will permanently delete the database and re-index all photos.</p>
+                        <button id="resetDatabaseBtn" class="btn btn-danger">Reset Database</button>
+                    </div>
                 </div>
-                <div id="dupGroups" class="dup-groups"></div>
-            </div>
-
-            <div class="settings-group system">
-                <h3>System</h3>
-                <p class="system-text">Restart the photo frame to apply system changes or clear memory.</p>
-                <button id="restartBtn" class="btn btn-secondary">Restart Photo Frame</button>
-            </div>
-            
-            <div class="settings-group danger-zone">
-                <h3>⚠️ Danger Zone</h3>
-                <p class="warning-text">This will permanently delete the database and re-index all photos.</p>
-                <button id="resetDatabaseBtn" class="btn btn-danger">Reset Database</button>
-            </div>
-
-            <div class="settings-actions">
-                <button id="saveSettingsBtn" class="btn btn-primary">Save</button>
-                <button id="cancelSettingsBtn" class="btn btn-secondary">Cancel</button>
-            </div>
+            </section>
         </div>
+
+        <footer class="settings-actions">
+            <button id="cancelSettingsBtn" class="btn btn-secondary">Cancel</button>
+            <button id="saveSettingsBtn" class="btn btn-primary">Save</button>
+        </footer>
     </div>
 
     <!-- Preload container (hidden) -->

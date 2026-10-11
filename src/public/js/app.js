@@ -50,6 +50,7 @@ const elements = {
     filterSqlTextarea: document.getElementById('filterSqlTextarea'),
     saveSettingsBtn: document.getElementById('saveSettingsBtn'),
     cancelSettingsBtn: document.getElementById('cancelSettingsBtn'),
+    closeSettingsBtn: document.getElementById('closeSettingsBtn'),
     resetDatabaseBtn: document.getElementById('resetDatabaseBtn'),
     restartBtn: document.getElementById('restartBtn'),
     
@@ -1403,7 +1404,19 @@ function toggleInfo() {
 function openSettings() {
     elements.settingsPanel.classList.remove('hidden');
     loadStats();
-    if (window.PictureFrameDuplicates) window.PictureFrameDuplicates.init();
+    showSettingsTab(state.settingsTab || 'slideshow');
+}
+
+function showSettingsTab(name) {
+    state.settingsTab = name;
+    elements.settingsPanel.querySelectorAll('.settings-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.tab === name);
+    });
+    elements.settingsPanel.querySelectorAll('.settings-tab-panel').forEach(panel => {
+        panel.classList.toggle('active', panel.dataset.tabPanel === name);
+    });
+    // Duplicate groups pull up to 150 groups of thumbnails, so only load them when the tab is shown
+    if (name === 'duplicates' && window.PictureFrameDuplicates) window.PictureFrameDuplicates.init();
 }
 
 function closeSettings() {
@@ -1471,6 +1484,10 @@ function setupEventListeners() {
     // Settings panel
     elements.saveSettingsBtn.addEventListener('click', saveSettings);
     elements.cancelSettingsBtn.addEventListener('click', closeSettings);
+    elements.closeSettingsBtn.addEventListener('click', closeSettings);
+    elements.settingsPanel.querySelectorAll('.settings-tab').forEach(tab => {
+        tab.addEventListener('click', () => showSettingsTab(tab.dataset.tab));
+    });
     elements.resetDatabaseBtn.addEventListener('click', resetDatabase);
     elements.restartBtn.addEventListener('click', restartPhotoFrame);
     

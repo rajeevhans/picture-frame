@@ -46,7 +46,7 @@
                 const fig = document.createElement('figure');
                 fig.className = 'dup-thumb' + (m.isSuggestedKeeper ? ' keeper' : '');
                 fig.innerHTML =
-                    `<img src="/api/image/${m.id}/serve" alt="${m.filename}">` +
+                    `<img src="/api/image/${m.id}/serve" loading="lazy" alt="${m.filename}">` +
                     `<figcaption>${m.isFavorite ? '⭐ ' : ''}${m.width}×${m.height}` +
                     `${m.artisticScore != null ? ' · ' + m.artisticScore : ''}` +
                     `${m.isSuggestedKeeper ? ' · KEEP' : ''}</figcaption>`;

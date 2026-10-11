@@ -344,32 +344,96 @@ body.show-cursor {
     border-radius: 20px;
 }
 
-/* Settings panel */
+/* Settings page (full screen, tabbed) */
 .settings-panel {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 400px;
-    height: 100%;
-    background: rgba(20, 20, 20, 0.95);
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    background: rgba(20, 20, 20, 0.97);
     backdrop-filter: blur(20px);
-    transform: translateX(100%);
-    transition: transform 0.3s ease;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
     z-index: 1000;
-    overflow-y: auto;
 }
 
 .settings-panel:not(.hidden) {
-    transform: translateX(0);
+    opacity: 1;
+    visibility: visible;
 }
 
-.settings-content {
+.settings-header {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 16px 30px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
+}
+
+.settings-header h2 {
+    font-size: 24px;
+}
+
+.settings-tabs {
+    display: flex;
+    gap: 4px;
+    flex: 1;
+    overflow-x: auto;
+}
+
+.settings-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #aaa;
+    font-size: 15px;
+    font-weight: 600;
+    padding: 10px 16px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.settings-tab:hover {
+    color: #fff;
+}
+
+.settings-tab.active {
+    color: #fff;
+    border-bottom-color: #4CAF50;
+}
+
+.settings-close {
+    background: none;
+    border: none;
+    color: #aaa;
+    font-size: 32px;
+    line-height: 1;
+    padding: 0 6px;
+    cursor: pointer;
+}
+
+.settings-close:hover {
+    color: #fff;
+}
+
+.settings-body {
+    flex: 1;
+    overflow-y: auto;
     padding: 30px;
 }
 
-.settings-content h2 {
-    margin-bottom: 30px;
-    font-size: 24px;
+.settings-tab-panel {
+    display: none;
+}
+
+.settings-tab-panel.active {
+    display: block;
+}
+
+.settings-content {
+    max-width: 640px;
 }
 
 .settings-content h3 {
@@ -434,9 +498,7 @@ body.show-cursor {
 }
 
 .settings-group.stats {
-    margin-top: 40px;
-    padding-top: 20px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    margin-bottom: 25px;
 }
 
 .stats-grid {
@@ -461,8 +523,15 @@ body.show-cursor {
 
 .settings-actions {
     display: flex;
+    justify-content: flex-end;
     gap: 10px;
-    margin-top: 30px;
+    padding: 16px 30px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
+}
+
+.settings-actions .btn {
+    flex: 0 0 140px;
 }
 
 .btn {
@@ -549,8 +618,31 @@ body.show-cursor {
 
 /* Responsive */
 @media (max-width: 768px) {
-    .settings-panel {
-        width: 100%;
+    .settings-header {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 12px 16px;
+    }
+
+    .settings-tabs {
+        order: 3;
+        flex-basis: 100%;
+    }
+
+    .settings-close {
+        margin-left: auto;
+    }
+
+    .settings-body {
+        padding: 20px 16px;
+    }
+
+    .settings-actions {
+        padding: 12px 16px;
+    }
+
+    .settings-actions .btn {
+        flex: 1;
     }
 
     .control-btn {
@@ -593,14 +685,17 @@ body.show-cursor {
 /* Duplicate detection settings section */
 .dup-progress.hidden { display: none; }
 .dup-summary { font-size: 0.85rem; margin: 6px 0; opacity: 0.85; }
-.dup-actions { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
-.dup-group { margin: 12px 0; padding: 8px 0; border-top: 1px solid #333; }
+.dup-toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.dup-toolbar .btn { flex: 0 0 auto; padding: 10px 16px; }
+.dup-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 16px; }
+.dup-group { padding: 12px; background: rgba(255, 255, 255, 0.04); border: 1px solid #333; border-radius: 6px; }
+.dup-group .btn { margin-top: 8px; width: 100%; }
 .dup-group-label { font-size: 0.8rem; text-transform: uppercase; opacity: 0.7; margin-bottom: 6px; }
 .dup-thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
 .dup-thumb { margin: 0; width: 110px; }
 .dup-thumb img { width: 110px; height: 110px; object-fit: cover; border-radius: 4px; display: block; }
 .dup-thumb.keeper img { outline: 3px solid #4a7dff; }
 .dup-thumb figcaption { font-size: 0.72rem; line-height: 1.2; margin-top: 2px; }
-.dup-note { font-size: 0.8rem; opacity: 0.7; margin: 8px 0; }
+.dup-note { grid-column: 1 / -1; font-size: 0.8rem; opacity: 0.7; margin: 8px 0; }
 .btn-warn { background: #a33; color: #fff; }
 
