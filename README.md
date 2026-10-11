@@ -167,6 +167,7 @@ Both UIs receive real-time updates via SSE. The slideshow timer is server-author
 - **Arrow Keys**: Navigate previous/next image
 - **Space**: Play/pause slideshow
 - **F**: Toggle favorite status
+- **Ctrl+F / Cmd+F**: Toggle showing favorites only
 - **D**: Delete image (moves to data/deleted/ folder)
 - **U**: Undo delete (within 5-second window)
 - **Ctrl+Z / Cmd+Z**: Undo delete (within 5-second window)

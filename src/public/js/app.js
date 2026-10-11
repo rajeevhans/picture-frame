@@ -497,6 +497,27 @@ async function saveSettings() {
     }
 }
 
+async function toggleFavoritesOnly() {
+    const favoritesOnly = !(state.settings && state.settings.favoritesOnly);
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ favoritesOnly })
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            alert(data.error || 'Failed to toggle favorites filter');
+            return;
+        }
+
+        updateSettings(data.settings);
+    } catch (error) {
+        console.error('Failed to toggle favorites filter:', error);
+    }
+}
+
 async function loadStats() {
     try {
         const stats = await apiCall('/stats');
@@ -1514,7 +1535,13 @@ function setupEventListeners() {
                 break;
             case 'f':
             case 'F':
-                toggleFavorite();
+                if (e.ctrlKey || e.metaKey) {
+                    // Ctrl+F or Cmd+F toggles the favorites-only filter
+                    e.preventDefault();
+                    toggleFavoritesOnly();
+                } else {
+                    toggleFavorite();
+                }
                 showControls();
                 break;
             case 'd':
