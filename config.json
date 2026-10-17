@@ -52,5 +52,14 @@
     "similarAutoThreshold": 5,
     "maxGroupSize": 25,
     "hashBatchSize": 100
+  },
+  "tv": {
+    "enabled": false,
+    "host": null,
+    "mac": null,
+    "clientName": "PictureFrame",
+    "offMode": "standby",
+    "commandTimeoutMs": 15000,
+    "pairTimeoutMs": 30000
   }
 }

@@ -317,7 +317,34 @@ Enable it in `~/picframe-config.json` (the API key must live here, not in the tr
 - `maxImageSize` — images are downscaled to this max dimension before being sent, to reduce API payload size and cost.
 - `runOnStartup` — score any unscored photos automatically when the server starts.
 
-## Custom SQL Filtering
+## TV Power Control
+
+Optional, disabled by default. Turns a networked Samsung TV (built and tested for The Frame) on and off over the LAN, using the TV's own network remote API, the same one Samsung's phone app uses.
+
+Why not HDMI-CEC: macOS locks the Mac's CEC controller to Apple's `corercd` daemon. Opening it directly fails with "exclusive access", and asking `corercd` requires a private Apple entitlement. A Mac can't send CEC power commands without an external USB-CEC adapter.
+
+Enable it in `~/picframe-config.json`:
+
+```json
+{
+  "tv": {
+    "enabled": true,
+    "host": "192.168.5.50",
+    "offMode": "standby"
+  }
+}
+```
+
+- `host`: the TV's IP address. Give it a DHCP reservation so the address doesn't change.
+- `mac`: optional. The TV's Wi-Fi MAC address for Wake-on-LAN. It's learned automatically the first time the TV is reachable.
+- `offMode`: `standby` (default) holds the power key, which fully powers off a Frame. `art` sends a short press, which switches a Frame to Art Mode.
+
+One-time setup on the TV:
+1. Turn on **Settings → General → Network → Expert Settings → Power On with Mobile**. This is required to wake the TV from standby.
+2. With the TV on, call `POST /api/tv/pair` and choose **Allow** on the TV's prompt within 30 seconds. The token the TV returns is stored in the database's settings table.
+
+To turn the TV on, the frame sends Wake-on-LAN first. It sends the power key only if the TV is reachable but still off, because the power key toggles and would otherwise switch the TV straight back off. Commands run one at a time.
+
 
 The slideshow can be restricted to a user-supplied `filterSql` clause (set via the Settings panel or `POST /api/settings`). The clause is validated before use to guard against SQL injection and is combined with the current mode/order/favorites settings. Useful for narrowing the rotation to, say, a specific year, camera, or tag without changing the underlying photo library.
 
@@ -437,6 +464,13 @@ POST /api/slideshow/pause          # Pause slideshow
 GET  /api/settings                 # Get slideshow settings
 POST /api/settings                 # Update settings (mode, order, interval, favoritesOnly, filterSql)
 POST /api/settings/restart         # Exit the server process (a supervisor — systemd/pm2/Electron — restarts it)
+
+# TV power (see "TV Power Control"; disabled unless tv.enabled + tv.host)
+GET  /api/tv/status                # { reachable, powerState, paired, name, model }
+POST /api/tv/on                    # Wake the TV (Wake-on-LAN, then power key if needed)
+POST /api/tv/off                   # Power off (or Art Mode with tv.offMode = "art")
+POST /api/tv/toggle                # On if off, off if on
+POST /api/tv/pair                  # One-time pairing; accept "Allow" on the TV
 
 # System
 GET  /api/stats                    # Database statistics

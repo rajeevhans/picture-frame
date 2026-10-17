@@ -12,6 +12,7 @@ const SlideshowEngine = require('./slideshow/engine');
 const GeolocationService = require('./services/geolocation');
 const ArtisticScoringService = require('./services/artisticScoring');
 const DuplicateDetectionService = require('./services/duplicateDetection');
+const TvControlService = require('./services/tvControl');
 const createImageRoutes = require('./routes/images');
 const createSettingsRoutes = require('./routes/settings');
 const { createAuthMiddleware } = require('./middleware/auth');
@@ -75,6 +76,7 @@ function broadcastMessage(message) {
 // auto-advance timer and emits its own state-change messages).
 const slideshowEngine = new SlideshowEngine(db, config, { broadcast: broadcastMessage });
 const duplicateService = new DuplicateDetectionService(db, config, { broadcast: broadcastMessage });
+const tvControl = new TvControlService(db, config.tv);
 
 // Check command line arguments
 const args = process.argv.slice(2);
@@ -105,6 +107,8 @@ app.use('/api/settings', createSettingsRoutes(
 ));
 const createDuplicateRoutes = require('./routes/duplicates');
 app.use('/api/duplicates', createDuplicateRoutes(db, duplicateService, slideshowEngine, broadcastMessage));
+const createTvRoutes = require('./routes/tv');
+app.use('/api/tv', createTvRoutes(tvControl));
 
 // Serve static files (frontend)
 app.use(express.static(path.join(__dirname, 'public')));

@@ -42,6 +42,7 @@ No test framework or linter is configured.
 
 **Routes**:
 - `src/routes/images.js` — Image CRUD, serving (with HEIF-to-JPEG conversion, on-disk cache keyed by image id + mtime), rotation, download, favorites, delete (moves the file to `data/deleted/` for recovery, then removes the row from the DB — the client shows a 5-second undo window before this fires)
+- `src/routes/tv.js` — TV power control: `GET /api/tv/status`, `POST /api/tv/on|off|toggle|pair`. Maps `TvControlError.status` to HTTP status codes (503 disabled, 409 not paired, 504 TV didn't respond)
 - `src/routes/settings.js` — Slideshow settings CRUD; also exposes a restart action that exits the process (relies on a supervisor — systemd, pm2, or Electron — to bring it back up; logs a warning if none is detected)
 
 **Auth** (`src/middleware/auth.js`, `src/routes/login.js`): Optional shared-secret gate. Loopback (the physical frame) is always allowed when `auth.trustLoopback` is set; all other clients must present `config.auth.secret` via the `pf_auth` cookie (set by `/login`), `Authorization: Bearer`, or `X-Auth-Token`. Fails open when disabled or unconfigured. Configured under `auth` in config.
@@ -49,6 +50,7 @@ No test framework or linter is configured.
 **Services**:
 - `src/services/geolocation.js` — Background reverse geocoding via OpenStreetMap Nominatim (rate-limited 1 req/sec); marks photos as geocode-attempted so failed/no-match lookups aren't retried on every startup.
 - `src/services/imageRotation.js` — Physical image rotation via Sharp
+- `src/services/tvControl.js` — Turns a Samsung TV on/off over its LAN remote API: status from `http://<host>:8001/api/v2/`, keys over `wss://<host>:8002` (self-signed TLS, via the `ws` package), and Wake-on-LAN for wake. The pairing token and the learned TV MAC are stored in the DB `settings` table (`tv_token`, `tv_mac`). `on()` tries Wake-on-LAN before the power key because the key toggles. Commands are serialized. Disabled unless `tv.enabled` and `tv.host` are set. HDMI-CEC isn't an option on macOS: `corercd` holds the CEC controller exclusively, and its client API needs the private entitlement `com.apple.private.cecd.control`.
 - `src/services/artisticScoring.js` — Sends resized photos to the Claude API for artistic quality scoring (1 to 1,000,000 scale, across composition/lighting/color/subject/creativity); backs the "Artistic (Best First)" slideshow mode. Disabled by default; requires an API key.
 
 **Frontend**: Two UIs served as static files from `src/public/`:
