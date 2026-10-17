@@ -345,6 +345,8 @@ One-time setup on the TV:
 3. Turn on **Settings → General → Network → Expert Settings → IP Remote**. In **Settings → General → External Device Manager → Device Connection Manager**, set **Access Notification** to *First Time Only* (or *Always*). If either is off, the TV refuses every remote connection, with the error "TV refused remote connections".
 4. With the TV on and showing a normal picture (not Art Mode), call `POST /api/tv/pair` and choose **Allow** on the TV's prompt within 30 seconds. The token the TV returns is stored in the database's settings table.
 
+**TV Remote tab:** Settings has a **TV Remote** tab with a full remote. It has power on/off, Source and HDMI 1 to 4, a D-pad with OK, Back/Home/Menu, volume and channel rockers, Mute/Info/Exit, media keys, and a number pad. Arrows, volume and channel repeat while held. The tab shows the TV's status, offers a **Pair** button when needed, and disables keys while the TV is off. Key presses reuse one connection to the TV, which closes after 60 seconds idle, because opening one takes 0.6 to 1.6 seconds.
+
 To turn the TV on, the frame sends Wake-on-LAN first. It sends the power key only if the TV is reachable but still off, because the power key toggles and would otherwise switch the TV straight back off. Commands run one at a time.
 
 
@@ -472,6 +474,7 @@ GET  /api/tv/status                # { reachable, powerState, paired, name, mode
 POST /api/tv/on                    # Wake the TV (Wake-on-LAN, then power key if needed)
 POST /api/tv/off                   # Power off (or Art Mode with tv.offMode = "art")
 POST /api/tv/toggle                # On if off, off if on
+POST /api/tv/key                   # Press a remote key, body { "key": "KEY_VOLUP" } (allowlisted keys only)
 POST /api/tv/pair                  # One-time pairing; accept "Allow" on the TV
 
 # System

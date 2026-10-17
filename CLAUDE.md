@@ -42,7 +42,7 @@ No test framework or linter is configured.
 
 **Routes**:
 - `src/routes/images.js` — Image CRUD, serving (with HEIF-to-JPEG conversion, on-disk cache keyed by image id + mtime), rotation, download, favorites, delete (moves the file to `data/deleted/` for recovery, then removes the row from the DB — the client shows a 5-second undo window before this fires)
-- `src/routes/tv.js` — TV power control: `GET /api/tv/status`, `POST /api/tv/on|off|toggle|pair`. Maps `TvControlError.status` to HTTP status codes (503 disabled, 409 not paired, 504 TV didn't respond)
+- `src/routes/tv.js` — TV power control: `GET /api/tv/status`, `POST /api/tv/on|off|toggle|pair`, and `POST /api/tv/key` (keys must be in the `TV_KEYS` allowlist in tvControl.js). Maps `TvControlError.status` to HTTP status codes (503 disabled, 409 not paired, 504 TV didn't respond)
 - `src/routes/settings.js` — Slideshow settings CRUD; also exposes a restart action that exits the process (relies on a supervisor — systemd, pm2, or Electron — to bring it back up; logs a warning if none is detected)
 
 **Auth** (`src/middleware/auth.js`, `src/routes/login.js`): Optional shared-secret gate. Loopback (the physical frame) is always allowed when `auth.trustLoopback` is set; all other clients must present `config.auth.secret` via the `pf_auth` cookie (set by `/login`), `Authorization: Bearer`, or `X-Auth-Token`. Fails open when disabled or unconfigured. Configured under `auth` in config.
@@ -54,7 +54,7 @@ No test framework or linter is configured.
 - `src/services/artisticScoring.js` — Sends resized photos to the Claude API for artistic quality scoring (1 to 1,000,000 scale, across composition/lighting/color/subject/creativity); backs the "Artistic (Best First)" slideshow mode. Disabled by default; requires an API key.
 
 **Frontend**: Two UIs served as static files from `src/public/`:
-- Main display (`src/public/index.html`, `src/public/js/app.js`) — fullscreen slideshow for the frame itself
+- Main display (`src/public/index.html`, `src/public/js/app.js`) — fullscreen slideshow for the frame itself. Its full-screen Settings page has tabs (Slideshow, Duplicates, TV Remote, System). `js/duplicates.js` and `js/tvremote.js` drive their tabs, and the TV remote polls `/api/tv/status` only while its tab is visible
 - Remote control (`src/public/remote/`) — mobile-friendly control panel at `/remote`
 
 Both UIs receive real-time updates via SSE (`/api/events`). The slideshow timer is server-authoritative — all clients stay in sync.

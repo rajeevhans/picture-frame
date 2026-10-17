@@ -1461,10 +1461,18 @@ function showSettingsTab(name) {
     });
     // Duplicate groups pull up to 150 groups of thumbnails, so only load them when the tab is shown
     if (name === 'duplicates' && window.PictureFrameDuplicates) window.PictureFrameDuplicates.init();
+    // Remote buttons act immediately, so Save/Cancel don't apply on the TV tab
+    elements.settingsPanel.classList.toggle('settings-no-footer', name === 'tv');
+    // The TV remote polls the TV's status, so only while its tab is visible
+    if (window.PictureFrameTvRemote) {
+        if (name === 'tv') window.PictureFrameTvRemote.show();
+        else window.PictureFrameTvRemote.hide();
+    }
 }
 
 function closeSettings() {
     elements.settingsPanel.classList.add('hidden');
+    if (window.PictureFrameTvRemote) window.PictureFrameTvRemote.hide();
 }
 
 // Event listeners

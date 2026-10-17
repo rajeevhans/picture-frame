@@ -160,6 +160,7 @@
             <nav class="settings-tabs" role="tablist">
                 <button class="settings-tab active" role="tab" data-tab="slideshow">Slideshow</button>
                 <button class="settings-tab" role="tab" data-tab="duplicates">Duplicates</button>
+                <button class="settings-tab" role="tab" data-tab="tv">TV Remote</button>
                 <button class="settings-tab" role="tab" data-tab="system">System</button>
             </nav>
             <button id="closeSettingsBtn" class="settings-close" title="Close (Esc)">&times;</button>
@@ -232,6 +233,98 @@
                 </div>
             </section>
 
+            <section class="settings-tab-panel" data-tab-panel="tv">
+                <div class="tv-remote-wrap">
+                    <div class="tv-status" id="tvStatus">
+                        <span class="tv-status-dot" id="tvStatusDot"></span>
+                        <div class="tv-status-text">
+                            <div class="tv-status-title" id="tvStatusTitle">Checking TV…</div>
+                            <div class="tv-status-sub" id="tvStatusSub"></div>
+                        </div>
+                        <button id="tvPairBtn" class="btn tv-pair-btn hidden">Pair with TV</button>
+                    </div>
+
+                    <div class="tv-remote" id="tvRemote">
+                        <!-- Power & input -->
+                        <div class="tv-row tv-row-power">
+                            <button class="tv-btn tv-btn-power" data-tv-action="on" title="Turn TV on">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>
+                                <span>On</span>
+                            </button>
+                            <button class="tv-btn tv-btn-power tv-btn-off" data-tv-action="off" title="Turn TV off">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>
+                                <span>Off</span>
+                            </button>
+                            <button class="tv-btn" data-tv-key="KEY_SOURCE" title="Cycle inputs">Source</button>
+                        </div>
+                        <div class="tv-row tv-row-inputs">
+                            <button class="tv-chip" data-tv-key="KEY_HDMI1">HDMI 1</button>
+                            <button class="tv-chip" data-tv-key="KEY_HDMI2">HDMI 2</button>
+                            <button class="tv-chip" data-tv-key="KEY_HDMI3">HDMI 3</button>
+                            <button class="tv-chip" data-tv-key="KEY_HDMI4">HDMI 4</button>
+                        </div>
+
+                        <!-- Directional pad -->
+                        <div class="tv-dpad">
+                            <button class="tv-dpad-btn up" data-tv-key="KEY_UP" data-repeat aria-label="Up">&#9650;</button>
+                            <button class="tv-dpad-btn left" data-tv-key="KEY_LEFT" data-repeat aria-label="Left">&#9664;</button>
+                            <button class="tv-dpad-ok" data-tv-key="KEY_ENTER" aria-label="OK">OK</button>
+                            <button class="tv-dpad-btn right" data-tv-key="KEY_RIGHT" data-repeat aria-label="Right">&#9654;</button>
+                            <button class="tv-dpad-btn down" data-tv-key="KEY_DOWN" data-repeat aria-label="Down">&#9660;</button>
+                        </div>
+                        <div class="tv-row tv-row-nav">
+                            <button class="tv-round" data-tv-key="KEY_RETURN" title="Back">Back</button>
+                            <button class="tv-round" data-tv-key="KEY_HOME" title="Home">Home</button>
+                            <button class="tv-round" data-tv-key="KEY_MENU" title="Settings menu">Menu</button>
+                        </div>
+
+                        <!-- Volume / channel rockers -->
+                        <div class="tv-rockers">
+                            <div class="tv-rocker" aria-label="Volume">
+                                <button data-tv-key="KEY_VOLUP" data-repeat aria-label="Volume up">+</button>
+                                <span>VOL</span>
+                                <button data-tv-key="KEY_VOLDOWN" data-repeat aria-label="Volume down">&minus;</button>
+                            </div>
+                            <div class="tv-rocker-mid">
+                                <button class="tv-round" data-tv-key="KEY_MUTE" title="Mute">Mute</button>
+                                <button class="tv-round" data-tv-key="KEY_INFO" title="Info">Info</button>
+                                <button class="tv-round" data-tv-key="KEY_EXIT" title="Exit">Exit</button>
+                            </div>
+                            <div class="tv-rocker" aria-label="Channel">
+                                <button data-tv-key="KEY_CHUP" data-repeat aria-label="Channel up">&#9650;</button>
+                                <span>CH</span>
+                                <button data-tv-key="KEY_CHDOWN" data-repeat aria-label="Channel down">&#9660;</button>
+                            </div>
+                        </div>
+
+                        <!-- Media transport -->
+                        <div class="tv-row tv-row-media">
+                            <button class="tv-media tv-media-double" data-tv-key="KEY_REWIND" aria-label="Rewind">&#9664;&#9664;</button>
+                            <button class="tv-media" data-tv-key="KEY_PLAY" aria-label="Play">&#9654;</button>
+                            <button class="tv-media" data-tv-key="KEY_PAUSE" aria-label="Pause">&#10074;&#10074;</button>
+                            <button class="tv-media" data-tv-key="KEY_STOP" aria-label="Stop">&#9632;</button>
+                            <button class="tv-media tv-media-double" data-tv-key="KEY_FF" aria-label="Fast forward">&#9654;&#9654;</button>
+                        </div>
+
+                        <!-- Number pad (rarely needed, so folded away) -->
+                        <details class="tv-numpad">
+                            <summary>Number pad &amp; more</summary>
+                            <div class="tv-numgrid">
+                                <button data-tv-key="KEY_1">1</button><button data-tv-key="KEY_2">2</button><button data-tv-key="KEY_3">3</button>
+                                <button data-tv-key="KEY_4">4</button><button data-tv-key="KEY_5">5</button><button data-tv-key="KEY_6">6</button>
+                                <button data-tv-key="KEY_7">7</button><button data-tv-key="KEY_8">8</button><button data-tv-key="KEY_9">9</button>
+                                <button data-tv-key="KEY_PRECH">Prev</button><button data-tv-key="KEY_0">0</button><button data-tv-key="KEY_CH_LIST">List</button>
+                            </div>
+                            <div class="tv-row tv-row-extra">
+                                <button class="tv-chip" data-tv-key="KEY_GUIDE">Guide</button>
+                                <button class="tv-chip" data-tv-key="KEY_TOOLS">Tools</button>
+                                <button class="tv-chip" data-tv-key="KEY_HDMI">Next HDMI</button>
+                            </div>
+                        </details>
+                    </div>
+                </div>
+            </section>
+
             <section class="settings-tab-panel" data-tab-panel="system">
                 <div class="settings-content">
                     <div class="settings-group stats">
@@ -274,6 +367,7 @@
 
     <script src="/js/shared.js"></script>
     <script src="/js/duplicates.js"></script>
+    <script src="/js/tvremote.js"></script>
     <script src="/js/app.js"></script>
 </body>
 </html>

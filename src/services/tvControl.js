@@ -10,6 +10,21 @@ const MAC_KEY = 'tv_mac';
 
 const ON_STATES = new Set(['on']);
 const POLL_INTERVAL_MS = 1000;
+// Opening the remote channel takes 0.6-1.6s on the Frame, so key presses
+// reuse one connection and close it after this much idle time.
+const REMOTE_IDLE_MS = 60000;
+
+// Keys the remote-control UI may send (POST /api/tv/key). Samsung Tizen
+// key codes; anything else is rejected rather than forwarded to the TV.
+const TV_KEYS = new Set([
+    'KEY_POWER', 'KEY_SOURCE', 'KEY_HDMI', 'KEY_HDMI1', 'KEY_HDMI2', 'KEY_HDMI3', 'KEY_HDMI4',
+    'KEY_UP', 'KEY_DOWN', 'KEY_LEFT', 'KEY_RIGHT', 'KEY_ENTER',
+    'KEY_RETURN', 'KEY_HOME', 'KEY_MENU', 'KEY_EXIT', 'KEY_INFO', 'KEY_TOOLS', 'KEY_GUIDE',
+    'KEY_VOLUP', 'KEY_VOLDOWN', 'KEY_MUTE',
+    'KEY_CHUP', 'KEY_CHDOWN', 'KEY_PRECH', 'KEY_CH_LIST',
+    'KEY_REWIND', 'KEY_PLAY', 'KEY_PAUSE', 'KEY_STOP', 'KEY_FF',
+    'KEY_0', 'KEY_1', 'KEY_2', 'KEY_3', 'KEY_4', 'KEY_5', 'KEY_6', 'KEY_7', 'KEY_8', 'KEY_9'
+]);
 
 class TvControlError extends Error {
     constructor(message, status = 500) {
@@ -52,6 +67,8 @@ class TvControlService {
             ...tvConfig
         };
         this.queue = Promise.resolve();
+        this.remote = null;      // { ws, ready: Promise<WebSocket> } while connected
+        this.remoteIdleTimer = null;
     }
 
     isEnabled() {
@@ -93,6 +110,20 @@ class TvControlService {
         this._assertEnabled();
         const { powerState } = await this.getStatus();
         return ON_STATES.has(powerState) ? this.turnOff() : this.turnOn();
+    }
+
+    /**
+     * Press one remote-control key (Click). Only keys in TV_KEYS are sent.
+     * @param {string} key - e.g. 'KEY_VOLUP'
+     */
+    sendKey(key) {
+        return this._serialize(async () => {
+            this._assertEnabled();
+            if (!TV_KEYS.has(key)) throw new TvControlError(`Unknown TV key: ${key}`, 400);
+            this._assertPaired();
+            await this._sendKey(key);
+            return { key };
+        });
     }
 
     /**
@@ -165,11 +196,10 @@ class TvControlService {
         }
 
         // A long press powers a Frame fully off regardless of Art Mode.
-        await this._withRemote({ useToken: true }, async (send) => {
+        await this._remoteSend(async (send) => {
             send('Press', 'KEY_POWER');
             await sleep(3500);
             send('Release', 'KEY_POWER');
-            await sleep(500);
         });
         const state = await this._waitForState(s => !ON_STATES.has(s), 10000);
         if (!state) throw new TvControlError('TV still reports on after the power key', 504);
@@ -179,16 +209,87 @@ class TvControlService {
     // ---- transport ------------------------------------------------------
 
     _sendKey(key) {
-        return this._withRemote({ useToken: true }, async (send) => {
-            send('Click', key);
-            await sleep(500);
-        });
+        return this._remoteSend(async (send) => send('Click', key));
     }
 
     /**
-     * Open the remote-control channel, wait for ms.channel.connect, run
-     * `action(send)`, then close. Resolves with the token the TV returned
-     * (stored when it changes).
+     * Run `action(send)` on the shared, token-authenticated remote channel,
+     * opening it if needed. A stale socket is replaced once.
+     */
+    async _remoteSend(action) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const ws = await this._openRemote();
+            if (ws.readyState !== WebSocket.OPEN) {
+                this._dropRemote(ws);
+                continue;
+            }
+            const send = (cmd, key) => ws.send(JSON.stringify({
+                method: 'ms.remote.control',
+                params: { Cmd: cmd, DataOfCmd: key, Option: 'false', TypeOfRemote: 'SendRemoteKey' }
+            }));
+            await action(send);
+            this._touchRemote(ws);
+            return;
+        }
+        throw new TvControlError('TV connection dropped', 502);
+    }
+
+    _openRemote() {
+        if (this.remote) return this.remote.ready;
+        const name = Buffer.from(this.config.clientName).toString('base64');
+        const token = this.db.getSetting(TOKEN_KEY);
+        const url = `wss://${this.config.host}:8002/api/v2/channels/samsung.remote.control?name=${name}`
+            + `&token=${encodeURIComponent(token)}`;
+        const ws = new WebSocket(url, { rejectUnauthorized: false, handshakeTimeout: 5000 });
+        const ready = new Promise((resolve, reject) => {
+            let connected = false;
+            const fail = (err) => {
+                clearTimeout(timer);
+                this._dropRemote(ws);
+                if (!connected) reject(err);
+            };
+            const timer = setTimeout(() => fail(new TvControlError(
+                'Timed out waiting for the TV (pairing may have been revoked; POST /api/tv/pair)', 504)),
+            this.config.commandTimeoutMs);
+
+            ws.on('message', (raw) => {
+                let msg;
+                try { msg = JSON.parse(raw.toString()); } catch (_) { return; }
+                const refusal = remoteRefusal(msg.event);
+                if (refusal) return fail(refusal);
+                if (msg.event === 'ms.channel.connect' && !connected) {
+                    connected = true;
+                    clearTimeout(timer);
+                    const newToken = msg.data && msg.data.token;
+                    if (newToken && newToken !== token) this.db.setSetting(TOKEN_KEY, newToken);
+                    resolve(ws);
+                }
+            });
+            ws.on('error', (err) => fail(new TvControlError(`TV connection failed: ${err.message}`, 502)));
+            ws.on('close', () => fail(new TvControlError('TV closed the connection', 502)));
+        });
+        ready.catch(() => {}); // rejection is surfaced to the awaiting caller
+        this.remote = { ws, ready };
+        return ready;
+    }
+
+    _touchRemote(ws) {
+        clearTimeout(this.remoteIdleTimer);
+        this.remoteIdleTimer = setTimeout(() => this._dropRemote(ws), REMOTE_IDLE_MS);
+    }
+
+    _dropRemote(ws) {
+        if (this.remote && this.remote.ws === ws) {
+            this.remote = null;
+            clearTimeout(this.remoteIdleTimer);
+        }
+        try { ws.close(); } catch (_) { /* already closed */ }
+    }
+
+    /**
+     * One-shot remote channel for pairing: connect (without a token when
+     * pairing), wait for ms.channel.connect, run `action(send)`, then close.
+     * Resolves with the token the TV returned (stored when it changes).
      */
     _withRemote({ useToken, timeoutMs = this.config.commandTimeoutMs }, action) {
         const name = Buffer.from(this.config.clientName).toString('base64');
@@ -219,15 +320,9 @@ class TvControlService {
             ws.on('message', async (raw) => {
                 let msg;
                 try { msg = JSON.parse(raw.toString()); } catch (_) { return; }
-                if (msg.event === 'ms.channel.unauthorized') {
-                    finish(new TvControlError('TV rejected the connection; accept the prompt on the TV (POST /api/tv/pair)', 403));
-                } else if (msg.event === 'ms.channel.timeOut') {
-                    // Sent immediately when the TV won't accept this client at
-                    // all: the frame is on a different subnet from the TV (even
-                    // with a valid token), IP Remote or Device Connection
-                    // Manager notifications are off, or Art Mode is on screen.
-                    finish(new TvControlError('TV refused remote connections (the frame must be on the same subnet '
-                        + 'as the TV; enable IP Remote and Device Connection Manager access notifications; leave Art Mode)', 403));
+                const refusal = remoteRefusal(msg.event);
+                if (refusal) {
+                    finish(refusal);
                 } else if (msg.event === 'ms.channel.connect') {
                     const newToken = msg.data && msg.data.token;
                     if (newToken && newToken !== token) {
@@ -330,9 +425,26 @@ class TvControlService {
     }
 }
 
+/** Map the TV's refusal events to errors (null for any other event). */
+function remoteRefusal(event) {
+    if (event === 'ms.channel.unauthorized') {
+        return new TvControlError('TV rejected the connection; accept the prompt on the TV (POST /api/tv/pair)', 403);
+    }
+    if (event === 'ms.channel.timeOut') {
+        // Sent immediately when the TV won't accept this client at all: the
+        // frame is on a different subnet from the TV (even with a valid
+        // token), IP Remote or Device Connection Manager notifications are
+        // off, or Art Mode is on screen.
+        return new TvControlError('TV refused remote connections (the frame must be on the same subnet '
+            + 'as the TV; enable IP Remote and Device Connection Manager access notifications; leave Art Mode)', 403);
+    }
+    return null;
+}
+
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 module.exports = TvControlService;
 module.exports.TvControlError = TvControlError;
+module.exports.TV_KEYS = TV_KEYS;
