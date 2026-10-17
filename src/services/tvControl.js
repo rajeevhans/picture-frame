@@ -221,6 +221,12 @@ class TvControlService {
                 try { msg = JSON.parse(raw.toString()); } catch (_) { return; }
                 if (msg.event === 'ms.channel.unauthorized') {
                     finish(new TvControlError('TV rejected the connection; accept the prompt on the TV (POST /api/tv/pair)', 403));
+                } else if (msg.event === 'ms.channel.timeOut') {
+                    // Sent immediately when the TV won't show its "Allow"
+                    // prompt for any client: IP Remote off, Device Connection
+                    // Manager notifications off, or Art Mode on screen.
+                    finish(new TvControlError('TV refused remote connections (enable IP Remote and Device Connection '
+                        + 'Manager access notifications on the TV, and leave Art Mode)', 403));
                 } else if (msg.event === 'ms.channel.connect') {
                     const newToken = msg.data && msg.data.token;
                     if (newToken && newToken !== token) {

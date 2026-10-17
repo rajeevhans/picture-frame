@@ -341,7 +341,8 @@ Enable it in `~/picframe-config.json`:
 
 One-time setup on the TV:
 1. Turn on **Settings → General → Network → Expert Settings → Power On with Mobile**. This is required to wake the TV from standby.
-2. With the TV on, call `POST /api/tv/pair` and choose **Allow** on the TV's prompt within 30 seconds. The token the TV returns is stored in the database's settings table.
+2. Turn on **Settings → General → Network → Expert Settings → IP Remote**. In **Settings → General → External Device Manager → Device Connection Manager**, set **Access Notification** to *First Time Only* (or *Always*). If either is off, the TV refuses every remote connection, with the error "TV refused remote connections".
+3. With the TV on and showing a normal picture (not Art Mode), call `POST /api/tv/pair` and choose **Allow** on the TV's prompt within 30 seconds. The token the TV returns is stored in the database's settings table.
 
 To turn the TV on, the frame sends Wake-on-LAN first. It sends the power key only if the TV is reachable but still off, because the power key toggles and would otherwise switch the TV straight back off. Commands run one at a time.
 
