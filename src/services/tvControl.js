@@ -222,11 +222,12 @@ class TvControlService {
                 if (msg.event === 'ms.channel.unauthorized') {
                     finish(new TvControlError('TV rejected the connection; accept the prompt on the TV (POST /api/tv/pair)', 403));
                 } else if (msg.event === 'ms.channel.timeOut') {
-                    // Sent immediately when the TV won't show its "Allow"
-                    // prompt for any client: IP Remote off, Device Connection
-                    // Manager notifications off, or Art Mode on screen.
-                    finish(new TvControlError('TV refused remote connections (enable IP Remote and Device Connection '
-                        + 'Manager access notifications on the TV, and leave Art Mode)', 403));
+                    // Sent immediately when the TV won't accept this client at
+                    // all: the frame is on a different subnet from the TV (even
+                    // with a valid token), IP Remote or Device Connection
+                    // Manager notifications are off, or Art Mode is on screen.
+                    finish(new TvControlError('TV refused remote connections (the frame must be on the same subnet '
+                        + 'as the TV; enable IP Remote and Device Connection Manager access notifications; leave Art Mode)', 403));
                 } else if (msg.event === 'ms.channel.connect') {
                     const newToken = msg.data && msg.data.token;
                     if (newToken && newToken !== token) {
