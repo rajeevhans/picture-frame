@@ -268,8 +268,11 @@ class TvControlService {
                     }
                 });
             });
-            req.on('timeout', () => req.destroy());
-            req.on('error', () => resolve(null));
+            req.on('timeout', () => req.destroy(new Error('timed out')));
+            req.on('error', (err) => {
+                logger.debug('TV status request failed', { host: this.config.host, code: err.code, error: err.message });
+                resolve(null);
+            });
         });
     }
 
