@@ -248,7 +248,10 @@ class TvControlService {
 
     _fetchDeviceInfo() {
         return new Promise((resolve) => {
-            const req = http.get({ host: this.config.host, port: 8001, path: '/api/v2/', timeout: 2500 }, (res) => {
+            // agent:false = a fresh connection per request. The TV closes its
+            // end after each response, so a reused keep-alive socket fails
+            // instantly with ECONNRESET on back-to-back requests.
+            const req = http.get({ host: this.config.host, port: 8001, path: '/api/v2/', timeout: 2500, agent: false }, (res) => {
                 let body = '';
                 res.on('data', chunk => { body += chunk; });
                 res.on('end', () => {
