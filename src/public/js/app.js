@@ -49,6 +49,8 @@ const elements = {
     orderSelect: document.getElementById('orderSelect'),
     intervalSelect: document.getElementById('intervalSelect'),
     favoritesOnlyCheck: document.getElementById('favoritesOnlyCheck'),
+    shuffleCheck: document.getElementById('shuffleCheck'),
+    shuffleBtn: document.getElementById('shuffleBtn'),
     filterSqlTextarea: document.getElementById('filterSqlTextarea'),
     saveSettingsBtn: document.getElementById('saveSettingsBtn'),
     cancelSettingsBtn: document.getElementById('cancelSettingsBtn'),
@@ -470,6 +472,7 @@ async function saveSettings() {
         order: elements.orderSelect.value,
         interval: parseInt(elements.intervalSelect.value),
         favoritesOnly: elements.favoritesOnlyCheck.checked,
+        shuffle: elements.shuffleCheck.checked,
         filterSql: elements.filterSqlTextarea.value.trim()
     };
     
@@ -494,6 +497,18 @@ async function saveSettings() {
     } catch (error) {
         console.error('Failed to save settings:', error);
         alert('Failed to save settings');
+    }
+}
+
+async function shuffleSlideshow() {
+    try {
+        // The server broadcasts the first photo of the new order over SSE.
+        const data = await apiCall('/slideshow/shuffle', { method: 'POST' });
+        const count = data.settings ? data.settings.totalImages : 0;
+        showToast(`Shuffled ${count.toLocaleString()} photos`);
+    } catch (error) {
+        console.error('Failed to shuffle:', error);
+        showToast('Shuffle failed');
     }
 }
 
@@ -951,6 +966,7 @@ function updateSettings(settings) {
     elements.orderSelect.value = settings.order;
     elements.intervalSelect.value = settings.interval.toString();
     elements.favoritesOnlyCheck.checked = settings.favoritesOnly;
+    elements.shuffleCheck.checked = !!settings.shuffle;
     if (elements.filterSqlTextarea) {
         elements.filterSqlTextarea.value = settings.filterSql || '';
     }
@@ -1528,6 +1544,16 @@ function setupEventListeners() {
         showControls();
     });
     
+    elements.shuffleBtn.addEventListener('click', () => {
+        shuffleSlideshow();
+        showControls();
+    });
+
+    // Shuffle uses Sequential mode; reflect that in the form when it's ticked
+    elements.shuffleCheck.addEventListener('change', () => {
+        if (elements.shuffleCheck.checked) elements.modeSelect.value = 'sequential';
+    });
+
     elements.settingsBtn.addEventListener('click', () => {
         openSettings();
         showControls();
@@ -1602,6 +1628,13 @@ function setupEventListeners() {
             case ']':
                 rotateImage('right');
                 showControls();
+                break;
+            case 'r':
+            case 'R':
+                if (!e.ctrlKey && !e.metaKey) {
+                    shuffleSlideshow();
+                    showControls();
+                }
                 break;
             case 'i':
             case 'I':

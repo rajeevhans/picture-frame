@@ -104,7 +104,7 @@ body {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(8, 52px);
+  grid-template-columns: repeat(9, 52px);
   gap: 12px;
   justify-content: center;
   overflow-x: auto;

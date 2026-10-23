@@ -113,6 +113,11 @@
                         <polyline points="9 18 15 12 9 6"/>
                     </svg>
                 </button>
+                <button id="shuffleBtn" class="control-btn" title="Shuffle into a new order (R)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/>
+                    </svg>
+                </button>
             </div>
             <div class="control-group">
                 <button id="rotateLeftBtn" class="control-btn" title="Rotate Left ([)">
@@ -206,6 +211,14 @@
                             <input type="checkbox" id="favoritesOnlyCheck">
                             Show favorites only
                         </label>
+                    </div>
+
+                    <div class="settings-group">
+                        <label>
+                            <input type="checkbox" id="shuffleCheck">
+                            Shuffled order
+                        </label>
+                        <p class="settings-help">Every photo once, in a random order, before any repeats. Uses Sequential mode. Changing the mode or order turns shuffle off. The Shuffle button (or R) makes a new order.</p>
                     </div>
 
                     <div class="settings-group">

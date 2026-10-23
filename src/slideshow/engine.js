@@ -37,7 +37,12 @@ class SlideshowEngine {
             order: 'date',
             interval: 10,
             favoritesOnly: false,
-            filterSql: ''
+            filterSql: '',
+            // Shuffle: walk the list in a seeded random order (every photo
+            // once before any repeats). The seed is persisted, so the order
+            // survives list refreshes and restarts; a new seed = new order.
+            shuffle: false,
+            shuffleSeed: 0
         };
         // Reliable navigation history
         this.backStack = [];
@@ -94,6 +99,12 @@ class SlideshowEngine {
         if (savedSettings.filter_sql !== undefined && savedSettings.filter_sql !== null) {
             this.settings.filterSql = savedSettings.filter_sql;
         }
+        if (savedSettings.slideshow_shuffle) {
+            this.settings.shuffle = savedSettings.slideshow_shuffle === '1';
+        }
+        if (savedSettings.slideshow_shuffle_seed) {
+            this.settings.shuffleSeed = parseInt(savedSettings.slideshow_shuffle_seed) || 0;
+        }
         if (savedSettings.current_image_id) {
             this.currentImageId = parseInt(savedSettings.current_image_id);
         }
@@ -125,8 +136,15 @@ class SlideshowEngine {
             options.orderBy = 'artisticScore';
         }
 
+        const shuffled = this._isShuffled();
+        if (shuffled && options.orderBy !== 'thisday') {
+            // The seeded order replaces the DB order, so skip ORDER BY RANDOM().
+            options.orderBy = 'date';
+        }
+
         this.imageList = this.db.getAllImages(options);
-        logger.debug('Image list refreshed', { count: this.imageList.length, options });
+        if (shuffled) this.imageList = seededShuffle(this.imageList, this.settings.shuffleSeed);
+        logger.debug('Image list refreshed', { count: this.imageList.length, options, shuffled });
         console.log(`Loaded ${this.imageList.length} images for slideshow`);
 
         // Find current index if we have a current image
@@ -155,6 +173,47 @@ class SlideshowEngine {
         // Invalidate any cached smart weights — they were computed for the
         // previous list and would index-mismatch the new one.
         this.listVersion++;
+    }
+
+    _isShuffled() {
+        return this.settings.shuffle && this.settings.mode === 'sequential' && !!this.settings.shuffleSeed;
+    }
+
+    _setShuffle(enabled, seed) {
+        this.settings.shuffle = enabled;
+        this.db.setSetting('slideshow_shuffle', enabled ? '1' : '0');
+        if (seed !== undefined) {
+            this.settings.shuffleSeed = seed;
+            this.db.setSetting('slideshow_shuffle_seed', seed);
+        }
+    }
+
+    /**
+     * Put the slideshow into a brand-new random order and jump to its first
+     * photo. Switches to sequential mode, since shuffle is a fixed order that
+     * random/smart/artistic selection would override. Previous still returns
+     * to the photo that was showing.
+     * @returns {object|null} The first photo of the new order.
+     */
+    shuffle() {
+        const prevId = this.currentImageId;
+        if (this.settings.mode !== 'sequential') {
+            this.settings.mode = 'sequential';
+            this.db.setSetting('slideshow_mode', 'sequential');
+        }
+        this._setShuffle(true, newShuffleSeed(this.settings.shuffleSeed));
+        this.refreshImageList();
+        this.smartWeights = null;
+        if (this.imageList.length === 0) return null;
+
+        this.currentIndex = 0;
+        this.forwardStack = [];
+        if (prevId && prevId !== this.imageList[0].id) this.pushBack(prevId);
+        const image = this.getCurrentImage();
+        this.broadcastCurrentImage(image);
+        if (this.isPlaying) this._scheduleNextTick();
+        logger.info('Slideshow shuffled', { count: this.imageList.length, seed: this.settings.shuffleSeed });
+        return image;
     }
 
     setCurrentImageById(imageId) {
@@ -378,6 +437,7 @@ class SlideshowEngine {
             interval: this.settings.interval,
             favoritesOnly: this.settings.favoritesOnly,
             filterSql: this.settings.filterSql || '',
+            shuffle: this._isShuffled(),
             totalImages: this.imageList.length
         };
     }
@@ -424,6 +484,10 @@ class SlideshowEngine {
             normalized.favoritesOnly = input.favoritesOnly === true || input.favoritesOnly === 'true';
         }
 
+        if (input.shuffle !== undefined) {
+            normalized.shuffle = input.shuffle === true || input.shuffle === 'true';
+        }
+
         return normalized;
     }
 
@@ -443,6 +507,26 @@ class SlideshowEngine {
         if (updates.order !== undefined && updates.order !== this.settings.order) {
             this.settings.order = updates.order;
             this.db.setSetting('slideshow_order', updates.order);
+            needsRefresh = true;
+        }
+
+        // Picking a mode or order is an explicit ordering choice, so it ends
+        // shuffle, unless this same update asks for shuffle on.
+        if (needsRefresh && this.settings.shuffle && updates.shuffle !== true) {
+            this._setShuffle(false);
+        }
+
+        if (updates.shuffle !== undefined && updates.shuffle !== this._isShuffled()) {
+            if (updates.shuffle) {
+                if (this.settings.mode !== 'sequential') {
+                    this.settings.mode = 'sequential';
+                    this.db.setSetting('slideshow_mode', 'sequential');
+                }
+                // Keep an existing seed so re-enabling restores that order.
+                this._setShuffle(true, this.settings.shuffleSeed || newShuffleSeed(0));
+            } else {
+                this._setShuffle(false);
+            }
             needsRefresh = true;
         }
 
@@ -610,6 +694,31 @@ class SlideshowEngine {
         this.tickToken++;
         this.isPlaying = false;
     }
+}
+
+/** A new non-zero 31-bit seed, different from `previous`. */
+function newShuffleSeed(previous) {
+    let seed;
+    do { seed = 1 + Math.floor(Math.random() * 0x7ffffffe); } while (seed === previous);
+    return seed;
+}
+
+/**
+ * Deterministic shuffle: order images by a hash of (seed, image id). The same
+ * seed always gives the same order, and adding or removing a photo doesn't
+ * disturb the relative order of the others.
+ */
+function seededShuffle(images, seed) {
+    const keyed = images.map(img => ({ img, key: mix32(img.id ^ seed) }));
+    keyed.sort((a, b) => (a.key - b.key) || (a.img.id - b.img.id));
+    return keyed.map(k => k.img);
+}
+
+/** murmur3 fmix32 finalizer: spreads nearby integers across 32 bits. */
+function mix32(h) {
+    h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+    h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+    return (h ^ (h >>> 16)) >>> 0;
 }
 
 module.exports = SlideshowEngine;

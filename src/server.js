@@ -157,6 +157,18 @@ app.post('/api/slideshow/pause', (req, res) => {
     }
 });
 
+// Shuffle: new random order (no repeats until every photo has shown),
+// starting with its first photo. Switches the slideshow to sequential mode.
+app.post('/api/slideshow/shuffle', (req, res) => {
+    try {
+        const image = slideshowEngine.shuffle();
+        res.json({ success: true, image, settings: slideshowEngine.getSettings() });
+    } catch (error) {
+        console.error('Error shuffling slideshow:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 // SSE endpoint for real-time updates
 app.get('/api/events', (req, res) => {
     // Set headers for SSE

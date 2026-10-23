@@ -10,6 +10,7 @@ const els = {
   nextBtn: document.getElementById('nextBtn'),
   pauseBtn: document.getElementById('pauseBtn'),
   startBtn: document.getElementById('startBtn'),
+  shuffleBtn: document.getElementById('shuffleBtn'),
   favoriteBtn: document.getElementById('favoriteBtn'),
   rotateLeftBtn: document.getElementById('rotateLeftBtn'),
   rotateRightBtn: document.getElementById('rotateRightBtn'),
@@ -71,6 +72,7 @@ function setBusy(busy) {
     els.nextBtn,
     els.pauseBtn,
     els.startBtn,
+    els.shuffleBtn,
     els.favoriteBtn,
     els.rotateLeftBtn,
     els.rotateRightBtn,
@@ -181,6 +183,16 @@ async function pause() {
   }
 }
 
+async function shuffle() {
+  setBusy(true);
+  try {
+    const data = await apiCall('/slideshow/shuffle', { method: 'POST' });
+    setStatus(`Shuffled ${(data.settings && data.settings.totalImages || 0).toLocaleString()} photos`, 'ok');
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function toggleFavorite() {
   if (!state.currentImage) return;
   setBusy(true);
@@ -220,6 +232,7 @@ function wireUI() {
   els.nextBtn.addEventListener('click', next);
   els.pauseBtn.addEventListener('click', pause);
   els.startBtn.addEventListener('click', start);
+  els.shuffleBtn.addEventListener('click', shuffle);
   els.favoriteBtn.addEventListener('click', toggleFavorite);
   els.rotateLeftBtn.addEventListener('click', () => rotate('left'));
   els.rotateRightBtn.addEventListener('click', () => rotate('right'));
