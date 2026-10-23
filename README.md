@@ -174,6 +174,7 @@ Both UIs receive real-time updates via SSE. The slideshow timer is server-author
 - **[ / ]**: Rotate image left/right 90°
 - **Ctrl+S / Cmd+S**: Download current image
 - **I**: Toggle info overlay (shows metadata)
+- **R**: Shuffle into a new order
 - **S**: Open/close settings panel
 - **Escape**: Close panels/overlays
 
@@ -349,8 +350,19 @@ One-time setup on the TV:
 
 To turn the TV on, the frame sends Wake-on-LAN first. It sends the power key only if the TV is reachable but still off, because the power key toggles and would otherwise switch the TV straight back off. Commands run one at a time.
 
+## Hubitat
+
+A Hubitat Elevation device driver lives in [`hubitat/`](hubitat/README.md). It provides TV on/off as a Switch, slideshow play/pause/next/previous, favorite, delete (opt-in), favorites-only, mode/order/interval, TV remote keys, and buttons for Pico remotes. It updates live from the frame's event stream.
+
+## Custom SQL Filtering
 
 The slideshow can be restricted to a user-supplied `filterSql` clause (set via the Settings panel or `POST /api/settings`). The clause is validated before use to guard against SQL injection and is combined with the current mode/order/favorites settings. Useful for narrowing the rotation to, say, a specific year, camera, or tag without changing the underlying photo library.
+
+### Shuffle
+
+**Shuffle** puts every photo into a brand-new random order and starts it straight away. Use the shuffle button on the frame's control bar or the phone remote, the **R** key, `POST /api/slideshow/shuffle`, or Hubitat. The slideshow then walks that order, so every photo shows once before any repeats. That's unlike **Random** mode, which picks each photo independently and can repeat.
+
+The order comes from a stored seed, so it survives restarts and doesn't get reshuffled when photos are added, deleted or favorited. Shuffle runs in Sequential mode, and favorites-only and the SQL filter still apply. Choosing a different mode or order in Settings, or unticking **Shuffled order**, returns to the normal order.
 
 ### Slideshow Modes
 
@@ -463,6 +475,7 @@ DELETE /api/image/current            # Delete the current image
 GET  /api/slideshow/state          # Get play/pause state and interval
 POST /api/slideshow/start          # Start slideshow
 POST /api/slideshow/pause          # Pause slideshow
+POST /api/slideshow/shuffle        # New random order (no repeats until all shown); switches to sequential mode
 
 # Settings
 GET  /api/settings                 # Get slideshow settings

@@ -38,7 +38,7 @@ No test framework or linter is configured.
 - `src/indexer/metadata.js` — EXIF extraction via `exifreader`.
 - `src/indexer/watcher.js` — `chokidar` file watcher with debounce queue. Ignores `resized/` and dotfiles.
 
-**Slideshow engine** (`src/slideshow/engine.js`): Four modes — sequential, random, smart (weighted by favorites 3x, recency 2x, "this day" 10x), and artistic (sorted by AI artistic score, best first). Maintains back/forward navigation stacks. Preloads configurable number of images (default 15). Supports an optional `filterSql` setting — a user-supplied SQL filter clause, validated before use to guard against injection. Settings persisted to DB with 500ms debounce on writes.
+**Slideshow engine** (`src/slideshow/engine.js`): Four modes — sequential, random, smart (weighted by favorites 3x, recency 2x, "this day" 10x), and artistic (sorted by AI artistic score, best first). Maintains back/forward navigation stacks. Preloads configurable number of images (default 15). Supports an optional `filterSql` setting — a user-supplied SQL filter clause, validated before use to guard against injection. Settings persisted to DB with 500ms debounce on writes. **Shuffle** (`engine.shuffle()`, `POST /api/slideshow/shuffle`): sequential mode over a deterministic permutation, sorted by `mix32(id ^ seed)`. The seed is persisted (`slideshow_shuffle`, `slideshow_shuffle_seed`), so `refreshImageList()`, which runs on every delete/favorite/file change, keeps the same order. A mode or order change in `updateSettings` ends shuffle unless the same patch sets `shuffle: true`.
 
 **Routes**:
 - `src/routes/images.js` — Image CRUD, serving (with HEIF-to-JPEG conversion, on-disk cache keyed by image id + mtime), rotation, download, favorites, delete (moves the file to `data/deleted/` for recovery, then removes the row from the DB — the client shows a 5-second undo window before this fires)
@@ -58,6 +58,8 @@ No test framework or linter is configured.
 - Remote control (`src/public/remote/`) — mobile-friendly control panel at `/remote`
 
 Both UIs receive real-time updates via SSE (`/api/events`). The slideshow timer is server-authoritative — all clients stay in sync.
+
+**Hubitat** (`hubitat/picture-frame-driver.groovy`): A Hubitat device driver that drives the frame over its HTTP API and subscribes to `/api/events` for live attributes. It uses existing endpoints only. If you change an SSE message shape in `src/lib/messages.js` or a route the driver calls, update the driver too.
 
 **Electron** (`electron/main.js`): Optional wrapper that spawns the Node server as a child process, waits for `/api/health`, then opens a fullscreen BrowserWindow. Env vars: `ELECTRON_USE_EXTERNAL_SERVER`, `ELECTRON_KIOSK`, `PICTUREFRAME_URL`.
 
