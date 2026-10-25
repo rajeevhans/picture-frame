@@ -6,22 +6,27 @@
 # the TV reports "no HDMI". This polls the TV's local API and, on an
 # off -> on transition, forces a full modeset by briefly switching the
 # refresh rate (60 Hz -> 30 Hz -> back), which retrains the link exactly
-# like replugging the cable does.
+# like replugging the cable does. The switch is done by the bundled
+# display-rehandshake helper (public CoreGraphics API); BetterDisplay's CLI
+# is only a fallback, since a failed BetterDisplay auto-update once left the
+# app in the Trash and silently disabled the resets.
 #
 # Usage:
 #   frame-tv-watch.sh          run the watcher loop (LaunchAgent)
 #   frame-tv-watch.sh reset    force one re-handshake now
 #   frame-tv-watch.sh status   print the TV's current power state
 #
-# Install (on the frame Mac, as the GUI user; needs BetterDisplay running):
+# Install (on the frame Mac, as the GUI user):
 #   mkdir -p ~/bin && cp macos/frame-tv-watch.sh ~/bin/ && chmod +x ~/bin/frame-tv-watch.sh
+#   clang -O2 -o ~/bin/display-rehandshake macos/display-rehandshake.c -framework CoreGraphics -framework CoreFoundation
 #   cp macos/com.pictureframe.tvwatch.plist ~/Library/LaunchAgents/
 #   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.pictureframe.tvwatch.plist
-# TV_IP and DISPLAY_TAG (betterdisplaycli get -identifiers) are machine-specific.
+# TV_IP is machine-specific (DISPLAY_TAG too, for the BetterDisplay fallback).
 
 TV_IP="192.168.5.50"
 TV_API="http://${TV_IP}:8001/api/v2/"
-BD="/opt/homebrew/bin/betterdisplaycli"
+HELPER="$HOME/bin/display-rehandshake"   # built from macos/display-rehandshake.c
+BD="/opt/homebrew/bin/betterdisplaycli"  # fallback only
 DISPLAY_TAG="2"          # BetterDisplay tagID of the SAMSUNG display
 ALT_MODE="102"           # 3840x2160 (HiDPI 1920x1080) @ 30 Hz
 FALLBACK_MODE="98"       # 3840x2160 (HiDPI 1920x1080) @ 60 Hz, the normal mode
@@ -41,16 +46,28 @@ tv_state() {
 }
 
 rehandshake() {
+    # Preferred: the bundled CoreGraphics helper (no third-party app needed).
+    if [ -x "$HELPER" ]; then
+        log "reset: $HELPER"
+        if "$HELPER" >> "$LOG" 2>&1; then
+            log "reset: done"
+        else
+            log "reset: FAILED (helper exit $?)"
+        fi
+        return
+    fi
+
+    # Fallback: BetterDisplay's CLI (needs the BetterDisplay app installed and running).
     local current
     current=$("$BD" get -tagID="$DISPLAY_TAG" -displayModeNumber 2>/dev/null)
     if ! [[ "$current" =~ ^[0-9]+$ ]]; then
-        log "reset: could not read display mode (is BetterDisplay running?) got='$current'"
-        current="$FALLBACK_MODE"
+        log "reset: FAILED: no helper at $HELPER and BetterDisplay didn't answer (got '$current')"
+        return
     fi
     local alt="$ALT_MODE"
     [ "$current" = "$ALT_MODE" ] && alt="$FALLBACK_MODE"
 
-    log "reset: mode $current -> $alt -> $current"
+    log "reset: betterdisplay mode $current -> $alt -> $current"
     "$BD" set -tagID="$DISPLAY_TAG" -displayModeNumber="$alt" >> "$LOG" 2>&1
     sleep 3
     "$BD" set -tagID="$DISPLAY_TAG" -displayModeNumber="$current" >> "$LOG" 2>&1
@@ -60,8 +77,9 @@ rehandshake() {
     if [ "$after" != "$current" ]; then
         log "reset: mode is '$after', expected '$current'; retrying restore"
         "$BD" set -tagID="$DISPLAY_TAG" -displayModeNumber="$current" >> "$LOG" 2>&1
+        after=$("$BD" get -tagID="$DISPLAY_TAG" -displayModeNumber 2>/dev/null)
     fi
-    log "reset: done (mode $("$BD" get -tagID="$DISPLAY_TAG" -displayModeNumber 2>/dev/null))"
+    if [ "$after" = "$current" ]; then log "reset: done"; else log "reset: FAILED (mode '$after')"; fi
 }
 
 case "$1" in
