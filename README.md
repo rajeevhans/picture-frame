@@ -19,7 +19,7 @@ A digital picture frame application for Raspberry Pi (and macOS via Electron), c
 
 ### Photo Management
 - **4K Resize Pipeline**: Images are resized to 4K (3840x2160) on ingest, with originals deleted after successful resize. Resized files stored in `{photoDir}/resized/{year}/`
-- **Favorites System**: Mark and filter favorite photos with visual indicators
+- **Favorites System**: Mark and filter favorite photos with visual indicators, including a small heart after the date · location line when the photo on screen is a favorite
 - **Delete with Undo**: 5-second undo window before deletion. Files are moved to `data/deleted/` for recovery, then the row is removed from the database
 - **Download Images**: Download current image to your device (HEIF auto-converted to JPEG)
 - **Physical Image Rotation**: Permanently rotate images 90° left or right via Sharp, with automatic backup/restore on failure
@@ -168,6 +168,7 @@ Both UIs receive real-time updates via SSE. The slideshow timer is server-author
 - **Space**: Play/pause slideshow
 - **F**: Toggle favorite status
 - **Ctrl+F / Cmd+F**: Toggle showing favorites only
+- **Ctrl+Shift+F / Cmd+Shift+F**: Toggle showing non-favorites only (photos that aren't favorites)
 - **D**: Delete image (moves to data/deleted/ folder)
 - **U**: Undo delete (within 5-second window)
 - **Ctrl+Z / Cmd+Z**: Undo delete (within 5-second window)
@@ -182,7 +183,7 @@ Both UIs receive real-time updates via SSE. The slideshow timer is server-author
 - **Mode**: Sequential, Random, Smart, or Artistic (Best First) selection
 - **Order**: Date taken, filename, or "This Day in History"
 - **Interval**: 5 seconds to 5 minutes between images
-- **Filters**: Show favorites only, or restrict to a custom SQL filter
+- **Filters**: Show favorites only, show non-favorites only (the two are mutually exclusive), or restrict to a custom SQL filter
 - **System**: Restart server, reset database
 
 ### Service Management
@@ -479,7 +480,7 @@ POST /api/slideshow/shuffle        # New random order (no repeats until all show
 
 # Settings
 GET  /api/settings                 # Get slideshow settings
-POST /api/settings                 # Update settings (mode, order, interval, favoritesOnly, filterSql)
+POST /api/settings                 # Update settings (mode, order, interval, favoritesOnly, nonFavoritesOnly, shuffle, filterSql)
 POST /api/settings/restart         # Exit the server process (a supervisor — systemd/pm2/Electron — restarts it)
 
 # TV power (see "TV Power Control"; disabled unless tv.enabled + tv.host)

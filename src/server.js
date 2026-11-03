@@ -271,7 +271,7 @@ async function startServer() {
     let watcher = null;
     if (fs.existsSync(photoDir) && !forceIndex) {
         watcher = new FileWatcher(db, scanner, config, {
-            onChange: () => slideshowEngine.refreshImageList()
+            onChange: () => slideshowEngine.refreshImageList({ keepPlace: true }) // files added/removed in place
         });
         watcher.start(photoDir);
     }

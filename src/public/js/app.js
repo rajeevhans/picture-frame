@@ -13,7 +13,9 @@ const state = {
     eventSource: null,
     deleteTimeout: null,
     pendingDeletion: null,
-    toastTimer: null
+    toastTimer: null,
+    overlayImageId: null,  // photo the date/location overlay currently describes
+    overlayText: ''        // its date · location text ('' if none)
 };
 
 // DOM elements
@@ -27,6 +29,7 @@ const elements = {
     infoOverlay: document.getElementById('infoOverlay'),
     locationOverlay: document.getElementById('locationOverlay'),
     locationText: document.getElementById('locationText'),
+    favoriteHint: document.getElementById('favoriteHint'),
     settingsPanel: document.getElementById('settingsPanel'),
     clockTime: document.getElementById('clockTime'),
     toast: document.getElementById('toast'),
@@ -49,6 +52,7 @@ const elements = {
     orderSelect: document.getElementById('orderSelect'),
     intervalSelect: document.getElementById('intervalSelect'),
     favoritesOnlyCheck: document.getElementById('favoritesOnlyCheck'),
+    nonFavoritesOnlyCheck: document.getElementById('nonFavoritesOnlyCheck'),
     shuffleCheck: document.getElementById('shuffleCheck'),
     shuffleBtn: document.getElementById('shuffleBtn'),
     filterSqlTextarea: document.getElementById('filterSqlTextarea'),
@@ -324,6 +328,7 @@ async function deleteImage() {
         
         // Clear state
         state.currentImage = null;
+        clearLocationOverlay();
         state.pendingDeletion = null;
         state.deleteTimeout = null;
         
@@ -472,6 +477,7 @@ async function saveSettings() {
         order: elements.orderSelect.value,
         interval: parseInt(elements.intervalSelect.value),
         favoritesOnly: elements.favoritesOnlyCheck.checked,
+        nonFavoritesOnly: elements.nonFavoritesOnlyCheck.checked,
         shuffle: elements.shuffleCheck.checked,
         filterSql: elements.filterSqlTextarea.value.trim()
     };
@@ -514,11 +520,21 @@ async function shuffleSlideshow() {
 
 async function toggleFavoritesOnly() {
     const favoritesOnly = !(state.settings && state.settings.favoritesOnly);
+    await postFilterSetting({ favoritesOnly });
+}
+
+// Ctrl/Cmd+Shift+F: show only photos that are not favorites (or back to all)
+async function toggleNonFavoritesOnly() {
+    const nonFavoritesOnly = !(state.settings && state.settings.nonFavoritesOnly);
+    await postFilterSetting({ nonFavoritesOnly });
+}
+
+async function postFilterSetting(patch) {
     try {
         const response = await fetch('/api/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ favoritesOnly })
+            body: JSON.stringify(patch)
         });
         const data = await response.json();
 
@@ -748,6 +764,7 @@ function showNoImages() {
     elements.loadingIndicator.style.display = 'none';
     elements.noImagesMessage.style.display = 'block';
     state.currentImage = null;
+    clearLocationOverlay();
     
     // Reset matting background to default
     elements.mattingBackground.style.opacity = '0';
@@ -839,6 +856,12 @@ function updateInfoOverlay(image) {
     }
 }
 
+function favoritesFilter(settings) {
+    if (settings.favoritesOnly) return 'favorites';
+    if (settings.nonFavoritesOnly) return 'nonFavorites';
+    return 'all';
+}
+
 function updateLocationOverlay(image) {
     let displayText = '';
     
@@ -870,13 +893,33 @@ function updateLocationOverlay(image) {
         displayText = locationText;
     }
     
-    // Show overlay if we have either date or location
-    if (displayText) {
-        elements.locationText.textContent = displayText;
-        elements.locationOverlay.classList.remove('hidden');
-    } else {
+    state.overlayImageId = image.id;
+    state.overlayText = displayText;
+    renderLocationOverlay(displayText, !!image.isFavorite);
+}
+
+// Heart only: used when the current photo is (un)favorited.
+function updateFavoriteHint(image) {
+    renderLocationOverlay(state.overlayText || '', !!image.isFavorite);
+}
+
+function renderLocationOverlay(text, isFavorite) {
+    if (!text && !isFavorite) {
+        // Leave the old text and heart in place so they fade out with the
+        // overlay (opacity transition) instead of vanishing first.
         elements.locationOverlay.classList.add('hidden');
+        return;
     }
+    elements.locationText.textContent = text;
+    elements.favoriteHint.classList.toggle('hidden', !isFavorite);
+    elements.locationOverlay.classList.remove('hidden');
+}
+
+function clearLocationOverlay() {
+    state.overlayImageId = null;
+    state.overlayText = '';
+    // Fade out; renderLocationOverlay() replaces the content when the next photo shows.
+    elements.locationOverlay.classList.add('hidden');
 }
 
 // The local API response and the SSE broadcast both report the new value;
@@ -885,6 +928,10 @@ function setCurrentFavorite(isFavorite) {
     const changed = state.currentImage.isFavorite !== isFavorite;
     state.currentImage.isFavorite = isFavorite;
     updateFavoriteButton();
+    // During a crossfade state.currentImage is the incoming photo while the
+    // overlay still describes the outgoing one; it gets redrawn (with this
+    // isFavorite) when the new photo finishes loading.
+    if (state.overlayImageId === state.currentImage.id) updateFavoriteHint(state.currentImage);
     if (changed) showToast(isFavorite ? '♥ Added to favorites' : '♡ Removed from favorites');
 }
 
@@ -955,8 +1002,12 @@ function updateSettings(settings) {
     if (!settings) return;
 
     // Skip the initial load; after that, announce filter changes from any source (shortcut, panel, remote)
-    if (state.settings && state.settings.favoritesOnly !== settings.favoritesOnly) {
-        showToast(settings.favoritesOnly ? '♥ Showing favorites only' : 'Showing all photos');
+    if (state.settings && favoritesFilter(state.settings) !== favoritesFilter(settings)) {
+        showToast({
+            favorites: '♥ Showing favorites only',
+            nonFavorites: '♡ Showing non-favorites only',
+            all: 'Showing all photos'
+        }[favoritesFilter(settings)]);
     }
 
     state.settings = settings;
@@ -966,6 +1017,7 @@ function updateSettings(settings) {
     elements.orderSelect.value = settings.order;
     elements.intervalSelect.value = settings.interval.toString();
     elements.favoritesOnlyCheck.checked = settings.favoritesOnly;
+    elements.nonFavoritesOnlyCheck.checked = !!settings.nonFavoritesOnly;
     elements.shuffleCheck.checked = !!settings.shuffle;
     if (elements.filterSqlTextarea) {
         elements.filterSqlTextarea.value = settings.filterSql || '';
@@ -1549,6 +1601,14 @@ function setupEventListeners() {
         showControls();
     });
 
+    // The two favorites filters are mutually exclusive
+    elements.favoritesOnlyCheck.addEventListener('change', () => {
+        if (elements.favoritesOnlyCheck.checked) elements.nonFavoritesOnlyCheck.checked = false;
+    });
+    elements.nonFavoritesOnlyCheck.addEventListener('change', () => {
+        if (elements.nonFavoritesOnlyCheck.checked) elements.favoritesOnlyCheck.checked = false;
+    });
+
     // Shuffle uses Sequential mode; reflect that in the form when it's ticked
     elements.shuffleCheck.addEventListener('change', () => {
         if (elements.shuffleCheck.checked) elements.modeSelect.value = 'sequential';
@@ -1592,7 +1652,11 @@ function setupEventListeners() {
                 break;
             case 'f':
             case 'F':
-                if (e.ctrlKey || e.metaKey) {
+                if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
+                    // Ctrl/Cmd+Shift+F toggles the non-favorites-only filter
+                    e.preventDefault();
+                    toggleNonFavoritesOnly();
+                } else if (e.ctrlKey || e.metaKey) {
                     // Ctrl+F or Cmd+F toggles the favorites-only filter
                     e.preventDefault();
                     toggleFavoritesOnly();

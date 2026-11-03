@@ -19,7 +19,7 @@
         </div>
         <!-- Location overlay -->
         <div id="locationOverlay" class="location-overlay hidden">
-            <span id="locationText"></span>
+            <span class="location-line"><span id="locationText"></span><span id="favoriteHint" class="favorite-hint hidden" title="Favorite" aria-label="Favorite">&#9829;&#xFE0E;</span></span>
         </div>
     </div>
 
@@ -211,6 +211,14 @@
                             <input type="checkbox" id="favoritesOnlyCheck">
                             Show favorites only
                         </label>
+                    </div>
+
+                    <div class="settings-group">
+                        <label>
+                            <input type="checkbox" id="nonFavoritesOnlyCheck">
+                            Show non-favorites only
+                        </label>
+                        <p class="settings-help">Only photos that aren't favorites. Can't be combined with favorites only. Shortcut: Ctrl/Cmd+Shift+F.</p>
                     </div>
 
                     <div class="settings-group">

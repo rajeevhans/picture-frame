@@ -37,6 +37,9 @@ class SlideshowEngine {
             order: 'date',
             interval: 10,
             favoritesOnly: false,
+            // Mutually exclusive with favoritesOnly: show only photos that
+            // are NOT favorites.
+            nonFavoritesOnly: false,
             filterSql: '',
             // Shuffle: walk the list in a seeded random order (every photo
             // once before any repeats). The seed is persisted, so the order
@@ -80,6 +83,7 @@ class SlideshowEngine {
         this.db.seedSetting('slideshow_interval', ss.defaultInterval != null ? ss.defaultInterval : 10);
         this.db.seedSetting('slideshow_order', ss.defaultOrder || 'date');
         this.db.seedSetting('filter_favorites_only', '0');
+        this.db.seedSetting('filter_non_favorites_only', '0');
         this.db.seedSetting('current_image_id', '0');
 
         // Load settings from database
@@ -95,6 +99,11 @@ class SlideshowEngine {
         }
         if (savedSettings.filter_favorites_only) {
             this.settings.favoritesOnly = savedSettings.filter_favorites_only === '1';
+        }
+        if (savedSettings.filter_non_favorites_only) {
+            // favoritesOnly wins if a stale DB somehow has both on
+            this.settings.nonFavoritesOnly = savedSettings.filter_non_favorites_only === '1'
+                && !this.settings.favoritesOnly;
         }
         if (savedSettings.filter_sql !== undefined && savedSettings.filter_sql !== null) {
             this.settings.filterSql = savedSettings.filter_sql;
@@ -115,9 +124,24 @@ class SlideshowEngine {
         console.log('Slideshow engine initialized:', this.settings);
     }
 
-    refreshImageList() {
+    /**
+     * Reload the slideshow list from the DB.
+     * @param {{keepPlace?: boolean}} [opts] - keepPlace: the list is the same
+     *   list with a photo removed in place (favorite toggled under a favorites
+     *   filter, delete, duplicate resolve, file removed). If that removed the
+     *   current photo, continue from its neighbour instead of the list start.
+     *   Leave it off when the list itself is replaced (filter/order changes,
+     *   reindex), where the old position means nothing.
+     */
+    refreshImageList(opts = {}) {
+        const prevIndex = this.currentIndex;
+        // Was the current photo actually at prevIndex in the old list? Only
+        // then is "keep the place" meaningful (not e.g. a stale saved id at startup).
+        const hadPlace = !!(opts.keepPlace && this.currentImageId && this.imageList[prevIndex]
+            && this.imageList[prevIndex].id === this.currentImageId);
         const options = {
             favoritesOnly: this.settings.favoritesOnly,
+            nonFavoritesOnly: this.settings.nonFavoritesOnly,
             filterSql: this.settings.filterSql
         };
 
@@ -157,8 +181,17 @@ class SlideshowEngine {
             } else {
                 // Need to find the image
                 this.currentIndex = this.imageList.findIndex(img => img.id === this.currentImageId);
-                if (this.currentIndex === -1) {
+                if (this.currentIndex === -1 && !hadPlace) {
                     this.currentIndex = 0;
+                } else if (this.currentIndex === -1) {
+                    // The current photo left the list (favorited while showing
+                    // non-favorites, unfavorited while showing favorites,
+                    // deleted). The photo that followed it now sits at
+                    // prevIndex, so park just before that spot: the next
+                    // advance continues from there instead of restarting at
+                    // the top of a possibly 150k-photo list.
+                    const len = this.imageList.length;
+                    this.currentIndex = (Math.min(prevIndex, len) - 1 + len) % len;
                 }
             }
         } else if (this.imageList.length > 0) {
@@ -436,6 +469,7 @@ class SlideshowEngine {
             order: this.settings.order,
             interval: this.settings.interval,
             favoritesOnly: this.settings.favoritesOnly,
+            nonFavoritesOnly: this.settings.nonFavoritesOnly,
             filterSql: this.settings.filterSql || '',
             shuffle: this._isShuffled(),
             totalImages: this.imageList.length
@@ -482,6 +516,16 @@ class SlideshowEngine {
 
         if (input.favoritesOnly !== undefined) {
             normalized.favoritesOnly = input.favoritesOnly === true || input.favoritesOnly === 'true';
+        }
+
+        if (input.nonFavoritesOnly !== undefined) {
+            normalized.nonFavoritesOnly = input.nonFavoritesOnly === true || input.nonFavoritesOnly === 'true';
+        }
+
+        if (normalized.favoritesOnly && normalized.nonFavoritesOnly) {
+            throw new SettingsValidationError(
+                'favoritesOnly and nonFavoritesOnly cannot both be true'
+            );
         }
 
         if (input.shuffle !== undefined) {
@@ -538,6 +582,27 @@ class SlideshowEngine {
         if (updates.favoritesOnly !== undefined && updates.favoritesOnly !== this.settings.favoritesOnly) {
             this.settings.favoritesOnly = updates.favoritesOnly;
             this.db.setSetting('filter_favorites_only', updates.favoritesOnly ? '1' : '0');
+            needsRefresh = true;
+        }
+
+        if (updates.nonFavoritesOnly !== undefined && updates.nonFavoritesOnly !== this.settings.nonFavoritesOnly) {
+            this.settings.nonFavoritesOnly = updates.nonFavoritesOnly;
+            this.db.setSetting('filter_non_favorites_only', updates.nonFavoritesOnly ? '1' : '0');
+            needsRefresh = true;
+        }
+
+        // The two filters are mutually exclusive: turning one on turns the
+        // other off. Callers that only know favoritesOnly keep working: for
+        // them favoritesOnly:false means "all photos", so a patch with
+        // favoritesOnly:false and no nonFavoritesOnly clears both.
+        const legacyShowAll = updates.favoritesOnly === false && updates.nonFavoritesOnly === undefined;
+        if ((updates.favoritesOnly === true || legacyShowAll) && this.settings.nonFavoritesOnly) {
+            this.settings.nonFavoritesOnly = false;
+            this.db.setSetting('filter_non_favorites_only', '0');
+            needsRefresh = true;
+        } else if (updates.nonFavoritesOnly === true && this.settings.favoritesOnly) {
+            this.settings.favoritesOnly = false;
+            this.db.setSetting('filter_favorites_only', '0');
             needsRefresh = true;
         }
 

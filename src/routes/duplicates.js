@@ -98,7 +98,7 @@ async function resolve(db, slideshowEngine, keeperId, deleteIds) {
         done.push(id);
     }
     db.removeImagesFromGroups([keeperId, ...deleteIds]); // keeper's group is resolved too
-    slideshowEngine.refreshImageList();
+    slideshowEngine.refreshImageList({ keepPlace: true });
     return done;
 }
 

@@ -245,6 +245,8 @@ class DatabaseManager {
 
         if (options.favoritesOnly) {
             query += ' AND is_favorite = 1';
+        } else if (options.nonFavoritesOnly) {
+            query += ' AND is_favorite = 0';
         }
 
         // Filter by custom SQL query - only include images whose id is in the result set

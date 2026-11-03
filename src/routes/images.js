@@ -271,8 +271,9 @@ function createImageRoutes(db, slideshowEngine, ctx) {
 
             const image = db.getImageById(imageId);
 
-            if (slideshowEngine.settings.favoritesOnly) {
-                slideshowEngine.refreshImageList();
+            // Favoriting changes which photos pass either favorites filter
+            if (slideshowEngine.settings.favoritesOnly || slideshowEngine.settings.nonFavoritesOnly) {
+                slideshowEngine.refreshImageList({ keepPlace: true });
             }
 
             if (broadcastMessage) {
@@ -329,12 +330,12 @@ function createImageRoutes(db, slideshowEngine, ctx) {
                             console.log(`File not found: ${sourcePath}, removing from database only`);
                         }
                         db.hardDelete(imageId);
-                        slideshowEngine.refreshImageList();
+                        slideshowEngine.refreshImageList({ keepPlace: true });
                     } catch (error) {
                         console.error('Error in background deletion:', error);
                         try {
                             db.hardDelete(imageId);
-                            slideshowEngine.refreshImageList();
+                            slideshowEngine.refreshImageList({ keepPlace: true });
                         } catch (dbError) {
                             console.error('Error removing from database:', dbError);
                         }
@@ -359,8 +360,9 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             const image = db.getImageById(imageId);
             
             // Refresh slideshow if favorites filter is on
-            if (slideshowEngine.settings.favoritesOnly) {
-                slideshowEngine.refreshImageList();
+            // Favoriting changes which photos pass either favorites filter
+            if (slideshowEngine.settings.favoritesOnly || slideshowEngine.settings.nonFavoritesOnly) {
+                slideshowEngine.refreshImageList({ keepPlace: true });
             }
 
             // Broadcast favorite update to all clients
@@ -429,7 +431,7 @@ function createImageRoutes(db, slideshowEngine, ctx) {
                         logger.debug('Delete: removed from database', { imageId });
 
                         // Refresh slideshow list after deletion
-                        slideshowEngine.refreshImageList();
+                        slideshowEngine.refreshImageList({ keepPlace: true });
                         logger.debug('Delete: complete', { imageId });
                     } catch (error) {
                         logger.error('Delete: background deletion failed', { imageId, error: error.message });
@@ -438,7 +440,7 @@ function createImageRoutes(db, slideshowEngine, ctx) {
                         // Still try to remove from database even if file move failed
                         try {
                             db.hardDelete(imageId);
-                            slideshowEngine.refreshImageList();
+                            slideshowEngine.refreshImageList({ keepPlace: true });
                             logger.debug('Delete: recovered - removed from database after file move failure', { imageId });
                         } catch (dbError) {
                             logger.error('Delete: failed to remove from database', { imageId, error: dbError.message });
