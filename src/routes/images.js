@@ -271,10 +271,8 @@ function createImageRoutes(db, slideshowEngine, ctx) {
 
             const image = db.getImageById(imageId);
 
-            // Favoriting changes which photos pass either favorites filter
-            if (slideshowEngine.settings.favoritesOnly || slideshowEngine.settings.nonFavoritesOnly) {
-                slideshowEngine.refreshImageList({ keepPlace: true });
-            }
+            // Update the slideshow list in place (drops/restores the photo under a favorites filter)
+            slideshowEngine.applyFavoriteChange(imageId, image.is_favorite === 1);
 
             if (broadcastMessage) {
                 broadcastMessage(favoriteMessage(imageId, image.is_favorite === 1));
@@ -360,10 +358,8 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             const image = db.getImageById(imageId);
             
             // Refresh slideshow if favorites filter is on
-            // Favoriting changes which photos pass either favorites filter
-            if (slideshowEngine.settings.favoritesOnly || slideshowEngine.settings.nonFavoritesOnly) {
-                slideshowEngine.refreshImageList({ keepPlace: true });
-            }
+            // Update the slideshow list in place (drops/restores the photo under a favorites filter)
+            slideshowEngine.applyFavoriteChange(imageId, image.is_favorite === 1);
 
             // Broadcast favorite update to all clients
             if (broadcastMessage) {

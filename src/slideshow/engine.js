@@ -61,6 +61,13 @@ class SlideshowEngine {
         // never be indexed against a newer/shorter list.
         this.listVersion = 0;
         this.smartWeightsListVersion = -1;
+        // The last photo applyFavoriteChange() dropped from the list (it
+        // stopped passing a favorites filter) and where it was, so an
+        // immediate un-toggle puts it back exactly. Only valid while no other
+        // change has touched the list since (listMutations unchanged); in any
+        // other case a full reload is used, which is always exact.
+        this.lastFavoriteDrop = null;
+        this.listMutations = 0;
         // Number of images to preload (from config, default 15)
         this.preloadCount = (config.slideshow && config.slideshow.numberOfImagesToPreload) || 15;
 
@@ -166,6 +173,7 @@ class SlideshowEngine {
             options.orderBy = 'date';
         }
 
+        this.listMutations++;
         this.imageList = this.db.getAllImages(options);
         if (shuffled) this.imageList = seededShuffle(this.imageList, this.settings.shuffleSeed);
         logger.debug('Image list refreshed', { count: this.imageList.length, options, shuffled });
@@ -206,6 +214,63 @@ class SlideshowEngine {
         // Invalidate any cached smart weights — they were computed for the
         // previous list and would index-mismatch the new one.
         this.listVersion++;
+    }
+
+    /**
+     * A photo's favorite flag changed. Update the in-memory list instead of
+     * reloading it: a full reload reads every photo record from the DB
+     * (~0.5 s for 150k photos), which made F feel slow under a favorites
+     * filter. Keeps the stored row current too, so formatImage() and smart
+     * weights see the new flag when the photo comes around again.
+     * @param {number} imageId
+     * @param {boolean} isFavorite
+     */
+    applyFavoriteChange(imageId, isFavorite) {
+        const fav = isFavorite ? 1 : 0;
+        const passes = !(this.settings.favoritesOnly && !fav) && !(this.settings.nonFavoritesOnly && fav);
+        const idx = this.imageList.findIndex(img => img.id === imageId);
+
+        if (idx !== -1) {
+            this.imageList[idx].is_favorite = fav;
+            this.listVersion++; // smart weights depend on is_favorite
+            if (passes) return;
+
+            // It no longer passes the filter: drop it in place.
+            const [row] = this.imageList.splice(idx, 1);
+            this.lastFavoriteDrop = { row, index: idx, mutation: ++this.listMutations };
+            const len = this.imageList.length;
+            if (idx <= this.currentIndex) {
+                // Before current: shift down. At current (the photo on screen,
+                // or the slot we're parked on): park before the photo that
+                // followed it, so the next advance shows that neighbour. Same
+                // rule as refreshImageList({keepPlace}).
+                this.currentIndex = len ? (this.currentIndex - 1 + len) % len : 0;
+            }
+            this.backStack = this.backStack.filter(id => id !== imageId);
+            this.forwardStack = this.forwardStack.filter(id => id !== imageId);
+            return;
+        }
+
+        if (!passes) return; // not in the list, and still filtered out
+
+        // It passes again but isn't in the list. If it's the photo we just
+        // dropped and nothing has touched the list since (the F, F undo case),
+        // put it back exactly where it was.
+        const memo = this.lastFavoriteDrop;
+        if (memo && memo.row.id === imageId && memo.mutation === this.listMutations) {
+            this.lastFavoriteDrop = null;
+            memo.row.is_favorite = fav;
+            this.imageList.splice(memo.index, 0, memo.row);
+            this.listMutations++;
+            if (this.currentImageId === imageId) this.currentIndex = memo.index;
+            else if (memo.index <= this.currentIndex) this.currentIndex++;
+            this.listVersion++;
+            return;
+        }
+
+        // Position not known exactly (an older drop, or changed from another
+        // client before this filter was turned on): a full reload is exact.
+        this.refreshImageList({ keepPlace: true });
     }
 
     _isShuffled() {
