@@ -27,7 +27,9 @@ The hub must be able to reach the frame. If the hub is on a different subnet, ch
 | Unshuffle | Back to the normal order |
 | Toggle Favorite | Favorites or unfavorites the photo on screen |
 | Delete Photo | Deletes the photo on screen. **Off until you enable it in preferences**. It takes effect immediately, and the file moves to the frame's `data/deleted/` folder |
-| Show Favorites / Show All Photos / Toggle Favorites Only | Turns the favorites-only filter on or off |
+| Show Favorites / Toggle Favorites Only | Only favorites (turns non-favorites off) |
+| Show Non Favorites / Toggle Non Favorites Only | Only photos that aren't favorites (turns favorites-only off) |
+| Show All Photos | Clears both filters |
 | Set Slide Interval | 5, 10, 15, 30, 60 or 300 seconds |
 | Set Slideshow Mode | sequential, random, smart, artistic |
 | Set Slideshow Order | date, filename, thisday. Choosing one turns shuffle off |
@@ -64,6 +66,7 @@ Delete is deliberately not mapped to a button.
 | `photoUrl` | Direct URL to the current photo |
 | `photoTile` | An HTML `<img>` tag, so an **Attribute** dashboard tile shows the current photo |
 | `favoritesOnly` | `on` / `off` |
+| `nonFavoritesOnly` | `on` / `off` |
 | `shuffle` | `on` / `off` |
 | `slideshowMode`, `slideshowOrder`, `slideInterval` | Current slideshow settings |
 | `eventStream` | `connected` / `disconnected` |

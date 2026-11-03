@@ -6,7 +6,8 @@
  *
  *  - Switch on/off      -> TV power (POST /api/tv/on|off)
  *  - Media transport    -> slideshow play/pause (POST /api/slideshow/start|pause)
- *  - Next/previous, shuffle, favorite, delete, favorites-only, mode, order, interval
+ *  - Next/previous, shuffle, favorite, delete, favorites-only / non-favorites-only,
+ *    mode, order, interval
  *  - Live updates from the frame's Server-Sent Events stream (/api/events),
  *    so photo/favorite/play-state attributes change the moment the frame does
  *  - Buttons 1-7 for Pico remotes and dashboards (see BUTTONS below)
@@ -59,6 +60,7 @@ metadata {
         attribute 'photoUrl', 'string'
         attribute 'photoTile', 'string'        // HTML <img> for dashboard attribute tiles
         attribute 'favoritesOnly', 'enum', ['on', 'off']
+        attribute 'nonFavoritesOnly', 'enum', ['on', 'off']
         attribute 'shuffle', 'enum', ['on', 'off']
         attribute 'slideshowMode', 'string'
         attribute 'slideshowOrder', 'string'
@@ -74,6 +76,8 @@ metadata {
         command 'deletePhoto'
         command 'showFavorites'
         command 'showAllPhotos'
+        command 'showNonFavorites'
+        command 'toggleNonFavoritesOnly'
         command 'toggleFavoritesOnly'
         command 'setSlideInterval', [[name: 'Seconds*', type: 'ENUM', constraints: INTERVALS]]
         command 'setSlideshowMode', [[name: 'Mode*', type: 'ENUM', constraints: MODES]]
@@ -187,7 +191,14 @@ void deletePhoto() {
 }
 
 void showFavorites() { setFavoritesOnly(true) }
-void showAllPhotos() { setFavoritesOnly(false) }
+// Clears both filters (favorites-only and non-favorites-only).
+void showAllPhotos() { updateSettings([favoritesOnly: false, nonFavoritesOnly: false]) }
+// Only photos that are NOT favorites; turns favorites-only off.
+void showNonFavorites() { updateSettings([nonFavoritesOnly: true]) }
+
+void toggleNonFavoritesOnly() {
+    updateSettings([nonFavoritesOnly: device.currentValue('nonFavoritesOnly') != 'on'])
+}
 
 void toggleFavoritesOnly() {
     setFavoritesOnly(device.currentValue('favoritesOnly') != 'on')
@@ -399,6 +410,7 @@ private void updatePhoto(Map image) {
 
 private void updateSettingsAttributes(Map s) {
     if (s.favoritesOnly != null) updateAttr('favoritesOnly', s.favoritesOnly ? 'on' : 'off')
+    if (s.nonFavoritesOnly != null) updateAttr('nonFavoritesOnly', s.nonFavoritesOnly ? 'on' : 'off')
     if (s.shuffle != null) updateAttr('shuffle', s.shuffle ? 'on' : 'off')
     if (s.mode) updateAttr('slideshowMode', s.mode as String)
     if (s.order) updateAttr('slideshowOrder', s.order as String)
@@ -417,7 +429,7 @@ private void updateTvPower(String powerState) {
 private void updateAttr(String name, value) {
     if (device.currentValue(name) == value) return
     sendEvent(name: name, value: value, descriptionText: "${device.displayName} ${name} is ${value}")
-    if (name in ['switch', 'transportStatus', 'favoritesOnly', 'shuffle', 'photoFavorite', 'tvPower']) logInfo "${name} is ${value}"
+    if (name in ['switch', 'transportStatus', 'favoritesOnly', 'nonFavoritesOnly', 'shuffle', 'photoFavorite', 'tvPower']) logInfo "${name} is ${value}"
 }
 
 private void logInfo(String msg) { if (txtEnable) log.info "${device.displayName}: ${msg}" }
