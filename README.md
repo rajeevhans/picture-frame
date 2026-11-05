@@ -183,6 +183,7 @@ Both UIs receive real-time updates via SSE. The slideshow timer is server-author
 - **Mode**: Sequential, Random, Smart, or Artistic (Best First) selection
 - **Order**: Date taken, filename, or "This Day in History"
 - **Interval**: 5 seconds to 5 minutes between images
+- **Date & location text size**: Font size of the bottom-left date · location line, 24–240 px (default 85). Previews live while dragging, and is shared with every screen once saved
 - **Filters**: Show favorites only, show non-favorites only (the two are mutually exclusive), or restrict to a custom SQL filter
 - **System**: Restart server, reset database
 
@@ -480,7 +481,7 @@ POST /api/slideshow/shuffle        # New random order (no repeats until all show
 
 # Settings
 GET  /api/settings                 # Get slideshow settings
-POST /api/settings                 # Update settings (mode, order, interval, favoritesOnly, nonFavoritesOnly, shuffle, filterSql)
+POST /api/settings                 # Update settings (mode, order, interval, favoritesOnly, nonFavoritesOnly, shuffle, overlayFontSize, filterSql)
 POST /api/settings/restart         # Exit the server process (a supervisor — systemd/pm2/Electron — restarts it)
 
 # TV power (see "TV Power Control"; disabled unless tv.enabled + tv.host)

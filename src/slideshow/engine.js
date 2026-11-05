@@ -5,6 +5,8 @@ const logger = require('../logger');
 // can inspect them for UI/validation purposes without duplicating strings.
 const VALID_MODES = Object.freeze(['sequential', 'random', 'smart', 'artistic']);
 const VALID_ORDERS = Object.freeze(['date', 'filename', 'thisday']);
+// Font size (px) of the bottom-left date · location line on the display.
+const OVERLAY_FONT_SIZE = Object.freeze({ min: 24, max: 240, default: 85 });
 
 /**
  * Error type thrown by SlideshowEngine.updateSettings when input fails
@@ -45,7 +47,8 @@ class SlideshowEngine {
             // once before any repeats). The seed is persisted, so the order
             // survives list refreshes and restarts; a new seed = new order.
             shuffle: false,
-            shuffleSeed: 0
+            shuffleSeed: 0,
+            overlayFontSize: OVERLAY_FONT_SIZE.default
         };
         // Reliable navigation history
         this.backStack = [];
@@ -91,6 +94,7 @@ class SlideshowEngine {
         this.db.seedSetting('slideshow_order', ss.defaultOrder || 'date');
         this.db.seedSetting('filter_favorites_only', '0');
         this.db.seedSetting('filter_non_favorites_only', '0');
+        this.db.seedSetting('overlay_font_size', OVERLAY_FONT_SIZE.default);
         this.db.seedSetting('current_image_id', '0');
 
         // Load settings from database
@@ -120,6 +124,10 @@ class SlideshowEngine {
         }
         if (savedSettings.slideshow_shuffle_seed) {
             this.settings.shuffleSeed = parseInt(savedSettings.slideshow_shuffle_seed) || 0;
+        }
+        if (savedSettings.overlay_font_size) {
+            const size = parseInt(savedSettings.overlay_font_size);
+            if (size >= OVERLAY_FONT_SIZE.min && size <= OVERLAY_FONT_SIZE.max) this.settings.overlayFontSize = size;
         }
         if (savedSettings.current_image_id) {
             this.currentImageId = parseInt(savedSettings.current_image_id);
@@ -537,6 +545,7 @@ class SlideshowEngine {
             nonFavoritesOnly: this.settings.nonFavoritesOnly,
             filterSql: this.settings.filterSql || '',
             shuffle: this._isShuffled(),
+            overlayFontSize: this.settings.overlayFontSize,
             totalImages: this.imageList.length
         };
     }
@@ -593,6 +602,16 @@ class SlideshowEngine {
             );
         }
 
+        if (input.overlayFontSize !== undefined) {
+            const size = Number(input.overlayFontSize);
+            if (!Number.isInteger(size) || size < OVERLAY_FONT_SIZE.min || size > OVERLAY_FONT_SIZE.max) {
+                throw new SettingsValidationError(
+                    `Invalid overlayFontSize. Must be a whole number from ${OVERLAY_FONT_SIZE.min} to ${OVERLAY_FONT_SIZE.max}`
+                );
+            }
+            normalized.overlayFontSize = size;
+        }
+
         if (input.shuffle !== undefined) {
             normalized.shuffle = input.shuffle === true || input.shuffle === 'true';
         }
@@ -637,6 +656,11 @@ class SlideshowEngine {
                 this._setShuffle(false);
             }
             needsRefresh = true;
+        }
+
+        if (updates.overlayFontSize !== undefined) {
+            this.settings.overlayFontSize = updates.overlayFontSize;
+            this.db.setSetting('overlay_font_size', updates.overlayFontSize);
         }
 
         if (updates.interval !== undefined) {
@@ -855,5 +879,6 @@ module.exports = SlideshowEngine;
 module.exports.SettingsValidationError = SettingsValidationError;
 module.exports.VALID_MODES = VALID_MODES;
 module.exports.VALID_ORDERS = VALID_ORDERS;
+module.exports.OVERLAY_FONT_SIZE = OVERLAY_FONT_SIZE;
 
 

@@ -15,7 +15,8 @@ const state = {
     pendingDeletion: null,
     toastTimer: null,
     overlayImageId: null,  // photo the date/location overlay currently describes
-    overlayText: ''        // its date · location text ('' if none)
+    overlayText: '',       // its date · location text ('' if none)
+    overlayFontSizeEditing: false  // slider moved but not yet saved/cancelled
 };
 
 // DOM elements
@@ -51,6 +52,8 @@ const elements = {
     modeSelect: document.getElementById('modeSelect'),
     orderSelect: document.getElementById('orderSelect'),
     intervalSelect: document.getElementById('intervalSelect'),
+    overlayFontSizeRange: document.getElementById('overlayFontSizeRange'),
+    overlayFontSizeValue: document.getElementById('overlayFontSizeValue'),
     favoritesOnlyCheck: document.getElementById('favoritesOnlyCheck'),
     nonFavoritesOnlyCheck: document.getElementById('nonFavoritesOnlyCheck'),
     shuffleCheck: document.getElementById('shuffleCheck'),
@@ -476,6 +479,7 @@ async function saveSettings() {
         mode: elements.modeSelect.value,
         order: elements.orderSelect.value,
         interval: parseInt(elements.intervalSelect.value),
+        overlayFontSize: parseInt(elements.overlayFontSizeRange.value),
         favoritesOnly: elements.favoritesOnlyCheck.checked,
         nonFavoritesOnly: elements.nonFavoritesOnlyCheck.checked,
         shuffle: elements.shuffleCheck.checked,
@@ -495,6 +499,7 @@ async function saveSettings() {
             return;
         }
 
+        state.overlayFontSizeEditing = false;
         updateSettings(data.settings);
         closeSettings();
 
@@ -856,6 +861,12 @@ function updateInfoOverlay(image) {
     }
 }
 
+// Size of the bottom-left date · location line (the heart scales with it).
+function applyOverlayFontSize(px) {
+    document.documentElement.style.setProperty('--overlay-font-size', `${px}px`);
+    elements.overlayFontSizeValue.textContent = `${px} px`;
+}
+
 function favoritesFilter(settings) {
     if (settings.favoritesOnly) return 'favorites';
     if (settings.nonFavoritesOnly) return 'nonFavorites';
@@ -1016,6 +1027,12 @@ function updateSettings(settings) {
     elements.modeSelect.value = settings.mode;
     elements.orderSelect.value = settings.order;
     elements.intervalSelect.value = settings.interval.toString();
+    // Settings arrive with every photo change; don't yank the slider (and the
+    // live preview) back while it's being edited.
+    if (settings.overlayFontSize && !state.overlayFontSizeEditing) {
+        elements.overlayFontSizeRange.value = settings.overlayFontSize;
+        applyOverlayFontSize(settings.overlayFontSize);
+    }
     elements.favoritesOnlyCheck.checked = settings.favoritesOnly;
     elements.nonFavoritesOnlyCheck.checked = !!settings.nonFavoritesOnly;
     elements.shuffleCheck.checked = !!settings.shuffle;
@@ -1540,7 +1557,21 @@ function showSettingsTab(name) {
 
 function closeSettings() {
     elements.settingsPanel.classList.add('hidden');
+    // Drop an unsaved live preview of the text size (Save already applied it)
+    state.overlayFontSizeEditing = false;
+    if (state.settings && state.settings.overlayFontSize) {
+        elements.overlayFontSizeRange.value = state.settings.overlayFontSize;
+        applyOverlayFontSize(state.settings.overlayFontSize);
+    }
     if (window.PictureFrameTvRemote) window.PictureFrameTvRemote.hide();
+}
+
+function isEditableControl(el) {
+    if (!el || !el.tagName) return false;
+    if (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable) return true;
+    if (el.tagName !== 'INPUT') return false;
+    // Checkboxes and buttons keep the shortcuts; text-like inputs and sliders don't
+    return !['checkbox', 'radio', 'button', 'submit', 'reset'].includes(el.type);
 }
 
 // Event listeners
@@ -1601,6 +1632,12 @@ function setupEventListeners() {
         showControls();
     });
 
+    // Live preview of the date & location text size while dragging
+    elements.overlayFontSizeRange.addEventListener('input', () => {
+        state.overlayFontSizeEditing = true;
+        applyOverlayFontSize(parseInt(elements.overlayFontSizeRange.value));
+    });
+
     // The two favorites filters are mutually exclusive
     elements.favoritesOnlyCheck.addEventListener('change', () => {
         if (elements.favoritesOnlyCheck.checked) elements.nonFavoritesOnlyCheck.checked = false;
@@ -1635,6 +1672,11 @@ function setupEventListeners() {
     
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
+        // While typing in a text box, adjusting a slider or a drop-down, the
+        // keys belong to that control (arrows move the text-size slider, 'd'
+        // types a letter in the SQL filter). Escape still closes Settings.
+        if (e.key !== 'Escape' && isEditableControl(e.target)) return;
+
         switch(e.key) {
             case 'ArrowLeft':
                 loadPreviousImage();

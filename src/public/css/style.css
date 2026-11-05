@@ -132,7 +132,8 @@ body.show-cursor {
     left: 30px;
     background: transparent;
     padding: 12px 20px;
-    font-size: 85px;
+    /* Set from the overlayFontSize setting (Settings → Slideshow) */
+    font-size: var(--overlay-font-size, 85px);
     color: #fff;
     font-weight: 300;
     transition: opacity 0.3s ease;
@@ -817,3 +818,8 @@ body.show-cursor {
 .tv-numgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0; }
 .tv-numgrid button { height: 48px; border-radius: 12px; font-size: 17px; }
 .tv-row-extra { flex-wrap: wrap; }
+
+/* Date & location text size slider */
+.font-size-row { display: flex; align-items: center; gap: 14px; }
+.font-size-row input[type="range"] { flex: 1; accent-color: #4CAF50; cursor: pointer; }
+.font-size-value { min-width: 56px; text-align: right; font-variant-numeric: tabular-nums; color: #ccc; }
