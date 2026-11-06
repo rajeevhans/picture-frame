@@ -61,6 +61,8 @@ metadata {
         attribute 'photoTile', 'string'        // HTML <img> for dashboard attribute tiles
         attribute 'favoritesOnly', 'enum', ['on', 'off']
         attribute 'nonFavoritesOnly', 'enum', ['on', 'off']
+        attribute 'importFilter', 'string'     // event import shown on its own ('none' when off)
+        attribute 'importName', 'string'
         attribute 'shuffle', 'enum', ['on', 'off']
         attribute 'slideshowMode', 'string'
         attribute 'slideshowOrder', 'string'
@@ -78,6 +80,8 @@ metadata {
         command 'showAllPhotos'
         command 'showNonFavorites'
         command 'toggleNonFavoritesOnly'
+        command 'showImport', [[name: 'Import ID*', type: 'STRING', description: 'e.g. 2026-11-05 (see Settings → Events on the frame)']]
+        command 'showLatestImport'
         command 'toggleFavoritesOnly'
         command 'setSlideInterval', [[name: 'Seconds*', type: 'ENUM', constraints: INTERVALS]]
         command 'setSlideshowMode', [[name: 'Mode*', type: 'ENUM', constraints: MODES]]
@@ -190,17 +194,39 @@ void deletePhoto() {
     asynchttpDelete('handleDelete', requestParams('/api/image/current'))
 }
 
-void showFavorites() { setFavoritesOnly(true) }
-// Clears both filters (favorites-only and non-favorites-only).
-void showAllPhotos() { updateSettings([favoritesOnly: false, nonFavoritesOnly: false]) }
+// Leaves an event import view too, so favorites actually show.
+void showFavorites() { updateSettings([favoritesOnly: true, importFilter: '']) }
+// Clears every filter: favorites-only, non-favorites-only and event import.
+void showAllPhotos() { updateSettings([favoritesOnly: false, nonFavoritesOnly: false, importFilter: '']) }
+
+// Show only one event import (photos copied into imports/<Event name>/ on the frame).
+void showImport(String importId) { updateSettings([importFilter: (importId ?: '').trim()]) }
+
+// Show the most recent event import.
+void showLatestImport() { frameGet('/api/imports', 'handleImportsForLatest') }
+
+void handleImportsForLatest(resp, data) {
+    Map json = responseJson(resp, 'imports list')
+    // Newest first; skip imports with no photos left
+    Map latest = ((json?.imports ?: []) as List).find { (it.count ?: 0) > 0 } as Map
+    if (!latest) { log.warn "${device.displayName}: no event imports with photos on the frame yet"; return }
+    showImport(latest.id as String)
+}
 // Only photos that are NOT favorites; turns favorites-only off.
-void showNonFavorites() { updateSettings([nonFavoritesOnly: true]) }
+void showNonFavorites() { updateSettings([nonFavoritesOnly: true, importFilter: '']) }
 
 void toggleNonFavoritesOnly() {
+    if (showingImport()) { showNonFavorites(); return }
     updateSettings([nonFavoritesOnly: device.currentValue('nonFavoritesOnly') != 'on'])
 }
 
+private Boolean showingImport() {
+    String imp = device.currentValue('importFilter')
+    return imp && imp != 'none'
+}
+
 void toggleFavoritesOnly() {
+    if (showingImport()) { showFavorites(); return }
     setFavoritesOnly(device.currentValue('favoritesOnly') != 'on')
 }
 
@@ -411,6 +437,10 @@ private void updatePhoto(Map image) {
 private void updateSettingsAttributes(Map s) {
     if (s.favoritesOnly != null) updateAttr('favoritesOnly', s.favoritesOnly ? 'on' : 'off')
     if (s.nonFavoritesOnly != null) updateAttr('nonFavoritesOnly', s.nonFavoritesOnly ? 'on' : 'off')
+    if (s.importFilter != null) {
+        updateAttr('importFilter', s.importFilter ?: 'none')
+        updateAttr('importName', s.importFilter ? (s.importName ?: s.importFilter) : 'none')
+    }
     if (s.shuffle != null) updateAttr('shuffle', s.shuffle ? 'on' : 'off')
     if (s.mode) updateAttr('slideshowMode', s.mode as String)
     if (s.order) updateAttr('slideshowOrder', s.order as String)
@@ -429,7 +459,7 @@ private void updateTvPower(String powerState) {
 private void updateAttr(String name, value) {
     if (device.currentValue(name) == value) return
     sendEvent(name: name, value: value, descriptionText: "${device.displayName} ${name} is ${value}")
-    if (name in ['switch', 'transportStatus', 'favoritesOnly', 'nonFavoritesOnly', 'shuffle', 'photoFavorite', 'tvPower']) logInfo "${name} is ${value}"
+    if (name in ['switch', 'transportStatus', 'favoritesOnly', 'nonFavoritesOnly', 'importFilter', 'shuffle', 'photoFavorite', 'tvPower']) logInfo "${name} is ${value}"
 }
 
 private void logInfo(String msg) { if (txtEnable) log.info "${device.displayName}: ${msg}" }

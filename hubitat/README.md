@@ -29,7 +29,9 @@ The hub must be able to reach the frame. If the hub is on a different subnet, ch
 | Delete Photo | Deletes the photo on screen. **Off until you enable it in preferences**. It takes effect immediately, and the file moves to the frame's `data/deleted/` folder |
 | Show Favorites / Toggle Favorites Only | Only favorites (turns non-favorites off) |
 | Show Non Favorites / Toggle Non Favorites Only | Only photos that aren't favorites (turns favorites-only off) |
-| Show All Photos | Clears both filters |
+| Show All Photos | Clears every filter (favorites, non-favorites, event import) |
+| Show Import | Shows only one event import, by ID (e.g. `2026-11-05`) |
+| Show Latest Import | Shows only the most recent event import |
 | Set Slide Interval | 5, 10, 15, 30, 60 or 300 seconds |
 | Set Slideshow Mode | sequential, random, smart, artistic |
 | Set Slideshow Order | date, filename, thisday. Choosing one turns shuffle off |
@@ -67,6 +69,7 @@ Delete is deliberately not mapped to a button.
 | `photoTile` | An HTML `<img>` tag, so an **Attribute** dashboard tile shows the current photo |
 | `favoritesOnly` | `on` / `off` |
 | `nonFavoritesOnly` | `on` / `off` |
+| `importFilter`, `importName` | Event import being shown, or `none` |
 | `shuffle` | `on` / `off` |
 | `slideshowMode`, `slideshowOrder`, `slideInterval` | Current slideshow settings |
 | `eventStream` | `connected` / `disconnected` |
@@ -78,6 +81,7 @@ Delete is deliberately not mapped to a button.
 - **Favorites in the evening:** at sunset, run **Show Favorites**. At bedtime, run **Show All Photos**.
 - **Pico remote:** with Button Controller, map buttons 1 to 4 to the device's buttons 1 to 4.
 - **Fresh order every morning:** at 7:00, run **Shuffle**.
+- **Party mode:** when a "Party" mode or scene turns on, run **Show Latest Import**. When it ends, run **Show All Photos**.
 
 ## Notes
 
