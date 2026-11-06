@@ -48,7 +48,11 @@ class SlideshowEngine {
             // survives list refreshes and restarts; a new seed = new order.
             shuffle: false,
             shuffleSeed: 0,
-            overlayFontSize: OVERLAY_FONT_SIZE.default
+            overlayFontSize: OVERLAY_FONT_SIZE.default,
+            // Event import shown on its own ('' = off). While set, the
+            // favorites/non-favorites/SQL filters and 'this day' are ignored
+            // (but kept, so clearing it restores them).
+            importFilter: ''
         };
         // Reliable navigation history
         this.backStack = [];
@@ -125,6 +129,9 @@ class SlideshowEngine {
         if (savedSettings.slideshow_shuffle_seed) {
             this.settings.shuffleSeed = parseInt(savedSettings.slideshow_shuffle_seed) || 0;
         }
+        if (savedSettings.filter_import_id && this.db.getImport && this.db.getImport(savedSettings.filter_import_id)) {
+            this.settings.importFilter = savedSettings.filter_import_id;
+        }
         if (savedSettings.overlay_font_size) {
             const size = parseInt(savedSettings.overlay_font_size);
             if (size >= OVERLAY_FONT_SIZE.min && size <= OVERLAY_FONT_SIZE.max) this.settings.overlayFontSize = size;
@@ -173,6 +180,19 @@ class SlideshowEngine {
             options.orderBy = this.settings.order;
         } else if (this.settings.mode === 'artistic') {
             options.orderBy = 'artisticScore';
+        }
+
+        if (this.settings.importFilter && this.db.getImport && !this.db.getImport(this.settings.importFilter)) {
+            // The import is gone (e.g. database reset): fall back to all photos.
+            this._setImportFilter('');
+        }
+        if (this.settings.importFilter) {
+            // Only that import's photos: the favorites, SQL and 'this day'
+            // filters don't apply (they're kept for when it's cleared).
+            options.importId = this.settings.importFilter;
+            delete options.filterSql;
+            delete options.thisDay;
+            if (options.orderBy === 'thisday') options.orderBy = 'date';
         }
 
         const shuffled = this._isShuffled();
@@ -235,7 +255,9 @@ class SlideshowEngine {
      */
     applyFavoriteChange(imageId, isFavorite) {
         const fav = isFavorite ? 1 : 0;
-        const passes = !(this.settings.favoritesOnly && !fav) && !(this.settings.nonFavoritesOnly && fav);
+        // While an import is shown, favorites don't decide membership
+        const passes = !!this.settings.importFilter
+            || (!(this.settings.favoritesOnly && !fav) && !(this.settings.nonFavoritesOnly && fav));
         const idx = this.imageList.findIndex(img => img.id === imageId);
 
         if (idx !== -1) {
@@ -279,6 +301,35 @@ class SlideshowEngine {
         // Position not known exactly (an older drop, or changed from another
         // client before this filter was turned on): a full reload is exact.
         this.refreshImageList({ keepPlace: true });
+    }
+
+    _setImportFilter(id) {
+        this.settings.importFilter = id || '';
+        this.db.setSetting('filter_import_id', this.settings.importFilter);
+    }
+
+    _importName() {
+        if (!this.settings.importFilter || !this.db.getImport) return null;
+        const imp = this.db.getImport(this.settings.importFilter);
+        return imp ? (imp.name || null) : null;
+    }
+
+    /**
+     * Show only this import, starting from its first photo, and broadcast it
+     * (used when a new import finishes arriving).
+     * @returns {object|null} first photo shown
+     */
+    showImport(id) {
+        this.updateSettings({ importFilter: id });
+        // A brand-new import may already be the filter (more files added):
+        // reload so the new photos are in the list either way.
+        if (this.settings.importFilter === id) this.refreshImageList();
+        this.currentIndex = 0;
+        this.forwardStack = [];
+        const image = this.getCurrentImage();
+        if (image) this.broadcastCurrentImage(image);
+        if (this.isPlaying) this._scheduleNextTick();
+        return image;
     }
 
     _isShuffled() {
@@ -546,6 +597,8 @@ class SlideshowEngine {
             filterSql: this.settings.filterSql || '',
             shuffle: this._isShuffled(),
             overlayFontSize: this.settings.overlayFontSize,
+            importFilter: this.settings.importFilter || '',
+            importName: this._importName(),
             totalImages: this.imageList.length
         };
     }
@@ -602,6 +655,13 @@ class SlideshowEngine {
             );
         }
 
+        if (input.importFilter !== undefined) {
+            if (input.importFilter !== null && typeof input.importFilter !== 'string') {
+                throw new SettingsValidationError('Invalid importFilter. Must be an import id or empty');
+            }
+            normalized.importFilter = (input.importFilter || '').trim();
+        }
+
         if (input.overlayFontSize !== undefined) {
             const size = Number(input.overlayFontSize);
             if (!Number.isInteger(size) || size < OVERLAY_FONT_SIZE.min || size > OVERLAY_FONT_SIZE.max) {
@@ -625,6 +685,12 @@ class SlideshowEngine {
         const updates = SlideshowEngine.validateSettings(newSettings);
 
         let needsRefresh = false;
+
+        // Validate against the DB before changing anything, so a rejected
+        // patch leaves every other setting untouched.
+        if (updates.importFilter && !(this.db.getImport && this.db.getImport(updates.importFilter))) {
+            throw new SettingsValidationError(`Unknown import: ${updates.importFilter}`);
+        }
 
         if (updates.mode !== undefined && updates.mode !== this.settings.mode) {
             this.settings.mode = updates.mode;
@@ -655,6 +721,22 @@ class SlideshowEngine {
             } else {
                 this._setShuffle(false);
             }
+            needsRefresh = true;
+        }
+
+        // Explicitly choosing a favorites or SQL filter leaves the import view
+        // (unless this same patch selects an import).
+        if (this.settings.importFilter && updates.importFilter === undefined
+            && ((updates.favoritesOnly === true && !this.settings.favoritesOnly)
+                || (updates.nonFavoritesOnly === true && !this.settings.nonFavoritesOnly)
+                || (newSettings.filterSql !== undefined
+                    && (typeof newSettings.filterSql === 'string' ? newSettings.filterSql.trim() : '') !== (this.settings.filterSql || '')))) {
+            this._setImportFilter('');
+            needsRefresh = true;
+        }
+
+        if (updates.importFilter !== undefined && updates.importFilter !== this.settings.importFilter) {
+            this._setImportFilter(updates.importFilter);
             needsRefresh = true;
         }
 

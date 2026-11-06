@@ -13,6 +13,7 @@ const GeolocationService = require('./services/geolocation');
 const ArtisticScoringService = require('./services/artisticScoring');
 const DuplicateDetectionService = require('./services/duplicateDetection');
 const TvControlService = require('./services/tvControl');
+const ImportService = require('./services/imports');
 const createImageRoutes = require('./routes/images');
 const createSettingsRoutes = require('./routes/settings');
 const { createAuthMiddleware } = require('./middleware/auth');
@@ -78,6 +79,23 @@ const slideshowEngine = new SlideshowEngine(db, config, { broadcast: broadcastMe
 const duplicateService = new DuplicateDetectionService(db, config, { broadcast: broadcastMessage });
 const tvControl = new TvControlService(db, config.tv);
 
+// Event imports: a folder under {photoDir}/imports/ that finishes arriving
+// is shown on its own straight away (the guests just arrived).
+const importService = new ImportService(db, photoDir, {
+    onReady: (imp) => {
+        slideshowEngine.showImport(imp.id);
+        broadcastMessage(require('./lib/messages').importReadyMessage(imp));
+        console.log(`Import ${imp.id}${imp.name ? ` (${imp.name})` : ''} ready: ${imp.count} photos, now showing`);
+    },
+    // More photos for an import that was already shown: reload if it's the
+    // one on screen (keeping the place) and announce, but don't switch.
+    onUpdated: (imp) => {
+        if (slideshowEngine.settings.importFilter === imp.id) slideshowEngine.refreshImageList({ keepPlace: true });
+        broadcastMessage(require('./lib/messages').importReadyMessage({ ...imp, updated: true }));
+    }
+});
+scanner.importService = importService;
+
 // Check command line arguments
 const args = process.argv.slice(2);
 const forceIndex = args.includes('--index') || args.includes('-i');
@@ -107,6 +125,7 @@ app.use('/api/settings', createSettingsRoutes(
 ));
 const createDuplicateRoutes = require('./routes/duplicates');
 app.use('/api/duplicates', createDuplicateRoutes(db, duplicateService, slideshowEngine, broadcastMessage));
+app.use('/api/imports', require('./routes/imports')(db, slideshowEngine, broadcastMessage));
 const createTvRoutes = require('./routes/tv');
 app.use('/api/tv', createTvRoutes(tvControl));
 
@@ -274,6 +293,17 @@ async function startServer() {
             onChange: () => slideshowEngine.refreshImageList({ keepPlace: true }) // files added/removed in place
         });
         watcher.start(photoDir);
+
+        // Event imports: make sure the drop folder exists, then pick up any
+        // photos left in it (the watcher ignores files present at startup,
+        // e.g. if the frame restarted mid-copy).
+        importService.ensureDir();
+        importService.resumeUnshown();
+        const pending = importService.findPending(config.fileExtensions);
+        if (pending.length) {
+            console.log(`Imports: ${pending.length} photo(s) waiting in imports/, indexing`);
+            pending.forEach(filePath => watcher.queueTask({ type: 'add', filePath }));
+        }
     }
 
     // Graceful shutdown — registered unconditionally so dev mode (no photo
@@ -283,6 +313,7 @@ async function startServer() {
         console.log('\nShutting down...');
         slideshowEngine.stopForShutdown();
         if (watcher) watcher.stop();
+        importService.stop();
         sseClients.forEach(client => client.end());
         sseClients.clear();
         db.close();

@@ -352,6 +352,19 @@ One-time setup on the TV:
 
 To turn the TV on, the frame sends Wake-on-LAN first. It sends the power key only if the TV is reachable but still off, because the power key toggles and would otherwise switch the TV straight back off. Commands run one at a time.
 
+## Event Imports
+
+Show just the photos from an event at home, for example while guests are over.
+
+1. On the frame's Mac, copy the event's photos into a **folder named after the event** inside `imports/` in the photo folder, e.g. `~/all-pics/imports/Diwali party/`. Finder, AirDrop or a USB stick all work.
+2. Each folder becomes one **import**, with an ID from the date it first appeared: `2026-11-05`, then `2026-11-05-2` for a second event the same day. The folder name is its friendly name, and you can rename it later. Photos placed directly in `imports/` form that day's unnamed import. Copying more photos into an existing folder adds them to the same import.
+3. Photos are resized to 4K like the rest of the library, and **the copied originals are deleted**. Keep your own copies.
+4. About 15 seconds after the last photo is processed, the frame **switches to showing only that import** and shows a message naming it.
+
+**Settings → Events** lists every import (cover, name, ID, photo count). Use **Show** to show one, edit the name to rename it, and **Show all photos** to go back. While an import is shown, the favorites, non-favorites and SQL filters and the "This Day" order are ignored but kept, so **Show all photos** restores them. Turning on a favorites or SQL filter yourself leaves the import view. Event photos stay in the normal library afterwards.
+
+If the frame restarts during a copy, photos left in `imports/` are picked up at startup.
+
 ## Hubitat
 
 A Hubitat Elevation device driver lives in [`hubitat/`](hubitat/README.md). It provides TV on/off as a Switch, slideshow play/pause/next/previous, favorite, delete (opt-in), favorites-only, mode/order/interval, TV remote keys, and buttons for Pico remotes. It updates live from the frame's event stream.
@@ -481,7 +494,11 @@ POST /api/slideshow/shuffle        # New random order (no repeats until all show
 
 # Settings
 GET  /api/settings                 # Get slideshow settings
-POST /api/settings                 # Update settings (mode, order, interval, favoritesOnly, nonFavoritesOnly, shuffle, overlayFontSize, filterSql)
+POST /api/settings                 # Update settings (mode, order, interval, favoritesOnly, nonFavoritesOnly, shuffle, overlayFontSize, importFilter, filterSql)
+
+# Event imports (see "Event Imports")
+GET   /api/imports                 # { imports: [{ id, name, folder, createdAt, count, coverId }], active }
+PATCH /api/imports/:id             # Rename: body { "name": "..." }
 POST /api/settings/restart         # Exit the server process (a supervisor — systemd/pm2/Electron — restarts it)
 
 # TV power (see "TV Power Control"; disabled unless tv.enabled + tv.host)

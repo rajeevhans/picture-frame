@@ -72,7 +72,7 @@ function createSettingsRoutes(db, slideshowEngine, broadcastMessage, updateServe
             if (broadcastMessage) {
                 // If settings changed that affect the current image (like favorites filter),
                 // also send the current image
-                if (updates.favoritesOnly !== undefined || updates.nonFavoritesOnly !== undefined || updates.filterSql !== undefined || updates.mode !== undefined || updates.order !== undefined) {
+                if (updates.favoritesOnly !== undefined || updates.nonFavoritesOnly !== undefined || updates.importFilter !== undefined || updates.filterSql !== undefined || updates.mode !== undefined || updates.order !== undefined) {
                     const image = slideshowEngine.getCurrentImage();
                     if (image) {
                         // Note: do not force isPlaying here; clients keep their current play state

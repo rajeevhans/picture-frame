@@ -64,7 +64,8 @@ function formatImage(row) {
         cameraModel: row.camera_model,
         cameraMake: row.camera_make,
         isFavorite: row.is_favorite === 1,
-        tags: row.tags ? JSON.parse(row.tags) : []
+        tags: row.tags ? JSON.parse(row.tags) : [],
+        importId: row.import_id || null
     };
 }
 
@@ -127,6 +128,26 @@ class DatabaseManager {
             console.log('Migration: added hash_computed column');
         }
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_content_hash ON images(content_hash)');
+        // Event imports: photos copied into {photoDir}/imports/<folder>/ are
+        // tagged with the import they arrived in (see services/imports.js).
+        if (!cols.includes('import_id')) {
+            this.db.exec('ALTER TABLE images ADD COLUMN import_id TEXT');
+            console.log('Migration: added import_id column');
+        }
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_import_id ON images(import_id)');
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS imports (
+                id TEXT PRIMARY KEY,          -- e.g. 2026-11-05, 2026-11-05-2
+                name TEXT,                    -- friendly name (folder name; editable)
+                folder TEXT UNIQUE NOT NULL,  -- path relative to {photoDir}/imports ('@loose/<date>' = loose files)
+                created_at INTEGER NOT NULL,
+                shown_at INTEGER              -- when the frame last auto-switched to it (NULL = never)
+            )
+        `);
+        const importCols = this.db.prepare('PRAGMA table_info(imports)').all().map(c => c.name);
+        if (!importCols.includes('shown_at')) {
+            this.db.exec('ALTER TABLE imports ADD COLUMN shown_at INTEGER');
+        }
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS duplicate_group_members (
                 group_id INTEGER NOT NULL,
@@ -147,12 +168,12 @@ class DatabaseManager {
             INSERT OR REPLACE INTO images (
                 filepath, filename, file_modified, date_taken, date_added,
                 latitude, longitude, location_city, location_country, width, height, orientation, rotation,
-                camera_model, camera_make, is_favorite, tags,
+                camera_model, camera_make, is_favorite, tags, import_id,
                 created_at, updated_at
             ) VALUES (
                 @filepath, @filename, @fileModified, @dateTaken, @dateAdded,
                 @latitude, @longitude, @locationCity, @locationCountry, @width, @height, @orientation, @rotation,
-                @cameraModel, @cameraMake, @isFavorite, @tags,
+                @cameraModel, @cameraMake, @isFavorite, @tags, @importId,
                 @createdAt, @updatedAt
             )
         `);
@@ -176,6 +197,7 @@ class DatabaseManager {
             cameraMake: imageData.cameraMake || null,
             isFavorite: imageData.isFavorite || 0,
             tags: imageData.tags ? JSON.stringify(imageData.tags) : null,
+            importId: imageData.importId || null,
             createdAt: now,
             updatedAt: now
         });
@@ -188,6 +210,65 @@ class DatabaseManager {
             }
         });
         return insert(images);
+    }
+
+    // ---- Event imports ---------------------------------------------------
+
+    getImport(id) {
+        return this.db.prepare('SELECT * FROM imports WHERE id = ?').get(id);
+    }
+
+    getImportByFolder(folder) {
+        return this.db.prepare('SELECT * FROM imports WHERE folder = ?').get(folder);
+    }
+
+    /**
+     * Create an import whose id is the given date (YYYY-MM-DD), suffixed -2,
+     * -3, ... if that date is taken. Runs in a transaction so concurrent
+     * callers can't pick the same id.
+     */
+    createImport({ date, name, folder }) {
+        return this.db.transaction(() => {
+            const existing = this.getImportByFolder(folder);
+            if (existing) return existing;
+            let id = date;
+            for (let n = 2; this.getImport(id); n++) id = `${date}-${n}`;
+            this.db.prepare('INSERT INTO imports (id, name, folder, created_at) VALUES (?, ?, ?, ?)')
+                .run(id, name || null, folder, Date.now());
+            return this.getImport(id);
+        })();
+    }
+
+    /** All imports, newest first, with photo count and a cover photo id. */
+    listImports() {
+        return this.db.prepare(`
+            SELECT im.id, im.name, im.folder, im.created_at AS createdAt,
+                   COUNT(i.id) AS count, MIN(i.id) AS coverId
+            FROM imports im LEFT JOIN images i ON i.import_id = im.id
+            GROUP BY im.id
+            ORDER BY im.created_at DESC
+        `).all();
+    }
+
+    markImportShown(id) {
+        this.db.prepare('UPDATE imports SET shown_at = ? WHERE id = ?').run(Date.now(), id);
+    }
+
+    /** Imports with photos that the frame never auto-switched to. */
+    getUnshownImports() {
+        return this.db.prepare(`
+            SELECT im.* FROM imports im
+            WHERE im.shown_at IS NULL AND EXISTS (SELECT 1 FROM images i WHERE i.import_id = im.id)
+            ORDER BY im.created_at
+        `).all();
+    }
+
+    renameImport(id, name) {
+        return this.db.prepare('UPDATE imports SET name = ? WHERE id = ?').run(name || null, id).changes > 0;
+    }
+
+    countImportImages(id) {
+        return this.db.prepare('SELECT COUNT(*) AS n FROM images WHERE import_id = ?').get(id).n;
     }
 
     getImageById(id) {
@@ -243,7 +324,11 @@ class DatabaseManager {
         let query = 'SELECT * FROM images WHERE 1 = 1';
         const params = [];
 
-        if (options.favoritesOnly) {
+        if (options.importId) {
+            // An import filter shows exactly that import; other filters don't apply.
+            query += ' AND import_id = ?';
+            params.push(options.importId);
+        } else if (options.favoritesOnly) {
             query += ' AND is_favorite = 1';
         } else if (options.nonFavoritesOnly) {
             query += ' AND is_favorite = 0';

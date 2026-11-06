@@ -13,6 +13,7 @@
  *   slideshowState - play/pause state changed
  *   rotate         - an image was physically rotated; clients should
  *                    reload it with the given cacheBuster
+ *   importReady    - an event import finished arriving and is now shown
  */
 
 function imageMessage({ image, preload, settings, isPlaying }) {
@@ -37,6 +38,10 @@ function rotateMessage(imageId, cacheBuster) {
     return { type: 'rotate', imageId, cacheBuster };
 }
 
+function importReadyMessage({ id, name, count, updated }) {
+    return { type: 'importReady', importId: id, name: name || null, count, updated: !!updated };
+}
+
 function duplicateScanMessage(state) {
     return { type: 'duplicateScan', ...state };
 }
@@ -47,5 +52,6 @@ module.exports = {
     settingsMessage,
     slideshowStateMessage,
     rotateMessage,
+    importReadyMessage,
     duplicateScanMessage
 };

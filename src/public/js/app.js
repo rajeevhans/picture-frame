@@ -193,6 +193,16 @@ function handleSSEMessage(data) {
             }
             break;
 
+        case 'importReady':
+            showToast(data.updated
+                ? `${data.name || 'Import ' + data.importId} now has ${data.count} photo${data.count === 1 ? '' : 's'}`
+                : `Showing ${data.name || 'import ' + data.importId} · ${data.count} photo${data.count === 1 ? '' : 's'}`);
+            if (window.PictureFrameEvents && state.settingsTab === 'events'
+                && !elements.settingsPanel.classList.contains('hidden')) {
+                window.PictureFrameEvents.refresh();
+            }
+            break;
+
         case 'duplicateScan':
             if (window.PictureFrameDuplicates) window.PictureFrameDuplicates.onScanEvent(data);
             break;
@@ -524,12 +534,21 @@ async function shuffleSlideshow() {
 }
 
 async function toggleFavoritesOnly() {
+    // While an event import is shown, Ctrl+F means "show favorites"
+    if (state.settings && state.settings.importFilter) {
+        await postFilterSetting({ importFilter: '', favoritesOnly: true });
+        return;
+    }
     const favoritesOnly = !(state.settings && state.settings.favoritesOnly);
     await postFilterSetting({ favoritesOnly });
 }
 
 // Ctrl/Cmd+Shift+F: show only photos that are not favorites (or back to all)
 async function toggleNonFavoritesOnly() {
+    if (state.settings && state.settings.importFilter) {
+        await postFilterSetting({ importFilter: '', nonFavoritesOnly: true });
+        return;
+    }
     const nonFavoritesOnly = !(state.settings && state.settings.nonFavoritesOnly);
     await postFilterSetting({ nonFavoritesOnly });
 }
@@ -868,6 +887,7 @@ function applyOverlayFontSize(px) {
 }
 
 function favoritesFilter(settings) {
+    if (settings.importFilter) return 'import:' + settings.importFilter;
     if (settings.favoritesOnly) return 'favorites';
     if (settings.nonFavoritesOnly) return 'nonFavorites';
     return 'all';
@@ -1013,12 +1033,19 @@ function updateSettings(settings) {
     if (!settings) return;
 
     // Skip the initial load; after that, announce filter changes from any source (shortcut, panel, remote)
-    if (state.settings && favoritesFilter(state.settings) !== favoritesFilter(settings)) {
-        showToast({
-            favorites: '♥ Showing favorites only',
-            nonFavorites: '♡ Showing non-favorites only',
-            all: 'Showing all photos'
-        }[favoritesFilter(settings)]);
+    const filterChanged = state.settings && favoritesFilter(state.settings) !== favoritesFilter(settings);
+    if (filterChanged && window.PictureFrameEvents && state.settingsTab === 'events'
+        && !elements.settingsPanel.classList.contains('hidden')) {
+        window.PictureFrameEvents.refresh();
+    }
+    if (filterChanged) {
+        showToast(settings.importFilter
+            ? `Showing ${settings.importName || 'import ' + settings.importFilter}`
+            : {
+                favorites: '♥ Showing favorites only',
+                nonFavorites: '♡ Showing non-favorites only',
+                all: 'Showing all photos'
+            }[favoritesFilter(settings)]);
     }
 
     state.settings = settings;
@@ -1547,7 +1574,8 @@ function showSettingsTab(name) {
     // Duplicate groups pull up to 150 groups of thumbnails, so only load them when the tab is shown
     if (name === 'duplicates' && window.PictureFrameDuplicates) window.PictureFrameDuplicates.init();
     // Remote buttons act immediately, so Save/Cancel don't apply on the TV tab
-    elements.settingsPanel.classList.toggle('settings-no-footer', name === 'tv');
+    elements.settingsPanel.classList.toggle('settings-no-footer', name === 'tv' || name === 'events');
+    if (name === 'events' && window.PictureFrameEvents) window.PictureFrameEvents.init();
     // The TV remote polls the TV's status, so only while its tab is visible
     if (window.PictureFrameTvRemote) {
         if (name === 'tv') window.PictureFrameTvRemote.show();

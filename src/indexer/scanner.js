@@ -137,8 +137,12 @@ class DirectoryScanner {
                 if (isResizedPath(filePath, photoDir)) {
                     const metadata = await this.metadataExtractor.extractMetadata(filePath);
                     const stat = fs.statSync(filePath);
+                    // Re-indexing replaces the row (INSERT OR REPLACE); keep its
+                    // event import tag, which the file itself doesn't carry.
+                    const previous = this.db.getImageByPath(filePath);
                     const batchItem = {
                         ...metadata,
+                        importId: previous ? previous.import_id : null,
                         filepath: filePath,
                         filename: path.basename(filePath),
                         fileModified: stat.mtimeMs
@@ -157,6 +161,7 @@ class DirectoryScanner {
                 // Build metadata with resized path
                 const batchItem = {
                     ...metadata,
+                    importId: this.importIdFor(filePath),
                     filepath: resized.outputPath,
                     filename: resized.filename,
                     fileModified: resized.fileModified
@@ -181,6 +186,7 @@ class DirectoryScanner {
                 for (const item of batch) {
                     const row = this.db.getImageByPath(item.filepath);
                     if (row) await this.hashImage(row.id, item.filepath);
+                    if (item.importId && this.importService) this.importService.noteIndexed(item.importId);
                 }
                 // Delete originals only after successful insert
                 for (const originalPath of originalsToDelete) {
@@ -226,6 +232,11 @@ class DirectoryScanner {
         }
     }
 
+    /** Event import id for an original under {photoDir}/imports/, else null. */
+    importIdFor(filePath) {
+        return this.importService ? this.importService.importIdForPath(filePath) : null;
+    }
+
     async indexSingleFile(filePath) {
         try {
             if (!this.metadataExtractor.isImageFile(filePath, this.config.fileExtensions)) {
@@ -243,6 +254,7 @@ class DirectoryScanner {
 
             const batchItem = {
                 ...metadata,
+                importId: this.importIdFor(filePath),
                 filepath: resized.outputPath,
                 filename: resized.filename,
                 fileModified: resized.fileModified
@@ -253,6 +265,7 @@ class DirectoryScanner {
             this.db.insertImage(batchItem);
             const insertedSingle = this.db.getImageByPath(resized.outputPath);
             if (insertedSingle) await this.hashImage(insertedSingle.id, resized.outputPath);
+            if (batchItem.importId && this.importService) this.importService.noteIndexed(batchItem.importId);
             if (fs.existsSync(filePath)) {
                 fs.unlinkSync(filePath);
             }
