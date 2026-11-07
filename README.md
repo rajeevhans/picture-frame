@@ -359,9 +359,9 @@ Show just the photos from an event at home, for example while guests are over.
 1. On the frame's Mac, copy the event's photos into a **folder named after the event** inside `imports/` in the photo folder, e.g. `~/all-pics/imports/Diwali party/`. Finder, AirDrop or a USB stick all work.
 2. Each folder becomes one **import**, with an ID from the date it first appeared: `2026-11-05`, then `2026-11-05-2` for a second event the same day. The folder name is its friendly name, and you can rename it later. Photos placed directly in `imports/` form that day's unnamed import. Copying more photos into an existing folder adds them to the same import.
 3. Photos are resized to 4K like the rest of the library, and **the copied originals are deleted**. Keep your own copies.
-4. About 15 seconds after the last photo is processed, the frame **switches to showing only that import** and shows a message naming it.
+4. About 15 seconds after the last photo is processed, the frame **switches to showing only that import** and shows a message naming it. Copying more photos into the same folder later adds them to that import and switches to it again ("Showing Garden party · 5 new, 48 photos"). If it's already on screen, the new photos join without restarting the slideshow.
 
-**Settings → Events** lists every import (cover, name, ID, photo count). Use **Show** to show one, edit the name to rename it, and **Show all photos** to go back. While an import is shown, the favorites, non-favorites and SQL filters and the "This Day" order are ignored but kept, so **Show all photos** restores them. Turning on a favorites or SQL filter yourself leaves the import view. Event photos stay in the normal library afterwards.
+**Settings → Events** lists every import (cover, name, ID, photo count). Use **Show** to show one, **Rename** to change its name, **Delete** to remove the event (its photos stay in the library), and **Show all photos** to go back. While an import is shown, the favorites, non-favorites and SQL filters and the "This Day" order are ignored but kept, so **Show all photos** restores them. Turning on a favorites or SQL filter yourself leaves the import view. Event photos stay in the normal library afterwards.
 
 If the frame restarts during a copy, photos left in `imports/` are picked up at startup.
 
@@ -495,11 +495,12 @@ POST /api/slideshow/shuffle        # New random order (no repeats until all show
 # Settings
 GET  /api/settings                 # Get slideshow settings
 POST /api/settings                 # Update settings (mode, order, interval, favoritesOnly, nonFavoritesOnly, shuffle, overlayFontSize, importFilter, filterSql)
+POST /api/settings/restart         # Exit the server process (a supervisor — systemd/pm2/Electron — restarts it)
 
 # Event imports (see "Event Imports")
-GET   /api/imports                 # { imports: [{ id, name, folder, createdAt, count, coverId }], active }
-PATCH /api/imports/:id             # Rename: body { "name": "..." }
-POST /api/settings/restart         # Exit the server process (a supervisor — systemd/pm2/Electron — restarts it)
+GET    /api/imports                # { imports: [{ id, name, folder, createdAt, count, coverId }], active }
+PATCH  /api/imports/:id            # Rename: body { "name": "..." }
+DELETE /api/imports/:id            # Delete the event; its photos stay in the library
 
 # TV power (see "TV Power Control"; disabled unless tv.enabled + tv.host)
 GET  /api/tv/status                # { reachable, powerState, paired, name, model }

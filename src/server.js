@@ -80,18 +80,20 @@ const duplicateService = new DuplicateDetectionService(db, config, { broadcast: 
 const tvControl = new TvControlService(db, config.tv);
 
 // Event imports: a folder under {photoDir}/imports/ that finishes arriving
-// is shown on its own straight away (the guests just arrived).
+// is shown on its own straight away (the guests just arrived), and again
+// whenever more photos are copied into it later.
 const importService = new ImportService(db, photoDir, {
     onReady: (imp) => {
-        slideshowEngine.showImport(imp.id);
+        // Already on screen with photos left: add the new ones without
+        // starting over. If every photo is new (its old ones were all
+        // deleted), there's no place to keep, so show it from the start.
+        if (slideshowEngine.settings.importFilter === imp.id && !(imp.added != null && imp.added >= imp.count)) {
+            slideshowEngine.refreshImageList({ keepPlace: true });
+        } else {
+            slideshowEngine.showImport(imp.id);
+        }
         broadcastMessage(require('./lib/messages').importReadyMessage(imp));
         console.log(`Import ${imp.id}${imp.name ? ` (${imp.name})` : ''} ready: ${imp.count} photos, now showing`);
-    },
-    // More photos for an import that was already shown: reload if it's the
-    // one on screen (keeping the place) and announce, but don't switch.
-    onUpdated: (imp) => {
-        if (slideshowEngine.settings.importFilter === imp.id) slideshowEngine.refreshImageList({ keepPlace: true });
-        broadcastMessage(require('./lib/messages').importReadyMessage({ ...imp, updated: true }));
     }
 });
 scanner.importService = importService;
@@ -125,7 +127,7 @@ app.use('/api/settings', createSettingsRoutes(
 ));
 const createDuplicateRoutes = require('./routes/duplicates');
 app.use('/api/duplicates', createDuplicateRoutes(db, duplicateService, slideshowEngine, broadcastMessage));
-app.use('/api/imports', require('./routes/imports')(db, slideshowEngine, broadcastMessage));
+app.use('/api/imports', require('./routes/imports')(db, slideshowEngine, broadcastMessage, importService));
 const createTvRoutes = require('./routes/tv');
 app.use('/api/tv', createTvRoutes(tvControl));
 

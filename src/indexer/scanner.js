@@ -117,6 +117,8 @@ class DirectoryScanner {
     async processBatch(files, forceReindex) {
         const batch = [];
         const originalsToDelete = [];
+        // Photos that just arrived in an event import (not reindexed ones)
+        const imported = new Set();
         const photoDir = path.resolve(this.config.photoDirectory || path.dirname(files[0] || '.'));
 
         for (const filePath of files) {
@@ -170,6 +172,7 @@ class DirectoryScanner {
                 if (resized.height != null) batchItem.height = resized.height;
 
                 batch.push(batchItem);
+                if (batchItem.importId) imported.add(batchItem);
                 originalsToDelete.push(filePath);
                 this.stats.processed++;
 
@@ -186,7 +189,7 @@ class DirectoryScanner {
                 for (const item of batch) {
                     const row = this.db.getImageByPath(item.filepath);
                     if (row) await this.hashImage(row.id, item.filepath);
-                    if (item.importId && this.importService) this.importService.noteIndexed(item.importId);
+                    if (imported.has(item) && this.importService) this.importService.noteIndexed(item.importId);
                 }
                 // Delete originals only after successful insert
                 for (const originalPath of originalsToDelete) {

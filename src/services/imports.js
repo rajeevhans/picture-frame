@@ -16,23 +16,25 @@ const READY_QUIET_MS = 15000;
  * folder later extends the same import.
  *
  * The scanner asks importIdForPath() while ingesting a file and calls
- * noteIndexed() after inserting it. Once an import goes quiet, onReady fires
- * (the server switches the slideshow to it).
+ * noteIndexed() after inserting it. Each time an import goes quiet after new
+ * photos, onReady fires (the server switches the slideshow to it).
  */
 class ImportService {
     /**
      * @param {object} db - DatabaseManager
      * @param {string} photoDir - absolute photo directory
-     * @param {{onReady?: (imp: {id, name, count}) => void, now?: () => Date}} [deps]
+     * @param {{onReady?: (imp: {id, name, count, added, updated}) => void, now?: () => Date}} [deps]
+     *   onReady: new photos finished arriving. added = how many (null if not
+     *   known, e.g. after a restart); updated = it had been shown before.
      */
     constructor(db, photoDir, deps = {}) {
         this.db = db;
         this.photoDir = path.resolve(photoDir);
         this.importsDir = path.join(this.photoDir, IMPORTS_DIR);
-        this.onReady = deps.onReady || null;       // first time an import is complete
-        this.onUpdated = deps.onUpdated || null;   // more photos arrived later
+        this.onReady = deps.onReady || null;
         this.now = deps.now || (() => new Date());
         this.readyTimers = new Map();
+        this.addedCounts = new Map();   // import id -> photos indexed since its last onReady
         this.quietMs = deps.quietMs || READY_QUIET_MS;
     }
 
@@ -59,24 +61,30 @@ class ImportService {
     /** A photo of this import was indexed; (re)start its "finished" timer. */
     noteIndexed(importId) {
         if (!importId) return;
+        this.db.touchImport(importId);
+        this.addedCounts.set(importId, (this.addedCounts.get(importId) || 0) + 1);
+        this._armReadyTimer(importId);
+    }
+
+    _armReadyTimer(importId) {
         clearTimeout(this.readyTimers.get(importId));
         this.readyTimers.set(importId, setTimeout(() => {
             this.readyTimers.delete(importId);
+            const added = this.addedCounts.has(importId) ? this.addedCounts.get(importId) : null;
+            this.addedCounts.delete(importId);
             const imp = this.db.getImport(importId);
             if (!imp) return;
             const count = this.db.countImportImages(importId);
             if (count === 0) return;
-            // First time this import goes quiet: switch to it. After that
-            // (late photos after a pause, more photos added later) only
-            // announce the additions, so a mid-copy pause can't keep
-            // overriding the user's "Show all photos".
-            const firstTime = !imp.shown_at;
-            if (firstTime) this.db.markImportShown(importId);
-            logger.info('Import ready', { id: importId, count, firstTime });
-            const handler = firstTime ? this.onReady : this.onUpdated;
-            if (handler) {
+            // Every batch of new photos switches to the import, the first one
+            // and any added to its folder later. shown_at records it, so a
+            // restart doesn't switch again for photos already announced.
+            const updated = !!imp.shown_at;
+            this.db.markImportShown(importId);
+            logger.info('Import ready', { id: importId, count, added, updated });
+            if (this.onReady) {
                 try {
-                    handler({ id: imp.id, name: imp.name, count });
+                    this.onReady({ id: imp.id, name: imp.name, count, added, updated });
                 } catch (error) {
                     console.error('Import ready handler failed:', error.message);
                 }
@@ -85,11 +93,49 @@ class ImportService {
     }
 
     /**
-     * Imports that finished arriving but were never shown (e.g. the frame
-     * restarted within the quiet period): run their ready timers again.
+     * Imports whose new photos finished arriving but were never shown (e.g.
+     * the frame restarted within the quiet period): run their ready timers again.
      */
     resumeUnshown() {
-        for (const imp of this.db.getUnshownImports()) this.noteIndexed(imp.id);
+        for (const imp of this.db.getUnshownImports()) this._armReadyTimer(imp.id);
+    }
+
+    /**
+     * Delete an import; its photos stay in the library. Removes its folder if
+     * nothing but Finder/Windows junk (.DS_Store, ._*, Thumbs.db) is left in
+     * it, so copying the same folder again later starts a fresh import either way.
+     * @returns {number|null} photos that were in it, or null if not found
+     */
+    deleteImport(id) {
+        const imp = this.db.getImport(id);
+        if (!imp) return null;
+        clearTimeout(this.readyTimers.get(id));
+        this.readyTimers.delete(id);
+        this.addedCounts.delete(id);
+        const photos = this.db.deleteImport(id);
+        logger.info('Import deleted', { id, folder: imp.folder, photos });
+        if (!imp.folder.startsWith('@loose/')) this._removeIfEmpty(path.join(this.importsDir, imp.folder));
+        return photos;
+    }
+
+    _removeIfEmpty(dir) {
+        const rel = path.relative(this.importsDir, dir);
+        if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return;
+        const isJunk = name => name === '.DS_Store' || name.startsWith('._') || name === 'Thumbs.db';
+        // Unlink only junk files and rmdir (never recursive) bottom-up: rmdir
+        // fails with ENOTEMPTY if anything else is there or arrives meanwhile
+        // (e.g. an in-progress copy's temp file), so no real file is removed.
+        const prune = (d) => {
+            let entries;
+            try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch (_) { return; }
+            for (const e of entries) {
+                const full = path.join(d, e.name);
+                if (e.isDirectory()) prune(full);
+                else if (isJunk(e.name)) { try { fs.unlinkSync(full); } catch (_) { /* leave it */ } }
+            }
+            try { fs.rmdirSync(d); } catch (_) { /* not empty: keep it */ }
+        };
+        prune(dir);
     }
 
     /**
@@ -126,6 +172,7 @@ class ImportService {
     stop() {
         for (const timer of this.readyTimers.values()) clearTimeout(timer);
         this.readyTimers.clear();
+        this.addedCounts.clear();
     }
 
     today() {

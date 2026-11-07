@@ -194,9 +194,9 @@ function handleSSEMessage(data) {
             break;
 
         case 'importReady':
-            showToast(data.updated
-                ? `${data.name || 'Import ' + data.importId} now has ${data.count} photo${data.count === 1 ? '' : 's'}`
-                : `Showing ${data.name || 'import ' + data.importId} · ${data.count} photo${data.count === 1 ? '' : 's'}`);
+            showToast(`Showing ${data.name || 'import ' + data.importId} · `
+                + (data.updated && data.added ? `${data.added} new, ` : '')
+                + `${data.count} photo${data.count === 1 ? '' : 's'}`);
             if (window.PictureFrameEvents && state.settingsTab === 'events'
                 && !elements.settingsPanel.classList.contains('hidden')) {
                 window.PictureFrameEvents.refresh();

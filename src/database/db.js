@@ -141,12 +141,16 @@ class DatabaseManager {
                 name TEXT,                    -- friendly name (folder name; editable)
                 folder TEXT UNIQUE NOT NULL,  -- path relative to {photoDir}/imports ('@loose/<date>' = loose files)
                 created_at INTEGER NOT NULL,
-                shown_at INTEGER              -- when the frame last auto-switched to it (NULL = never)
+                shown_at INTEGER,             -- when the frame last auto-switched to it (NULL = never)
+                last_added_at INTEGER         -- when a photo was last added to it
             )
         `);
         const importCols = this.db.prepare('PRAGMA table_info(imports)').all().map(c => c.name);
         if (!importCols.includes('shown_at')) {
             this.db.exec('ALTER TABLE imports ADD COLUMN shown_at INTEGER');
+        }
+        if (!importCols.includes('last_added_at')) {
+            this.db.exec('ALTER TABLE imports ADD COLUMN last_added_at INTEGER');
         }
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS duplicate_group_members (
@@ -254,17 +258,36 @@ class DatabaseManager {
         this.db.prepare('UPDATE imports SET shown_at = ? WHERE id = ?').run(Date.now(), id);
     }
 
-    /** Imports with photos that the frame never auto-switched to. */
+    /** A photo was just added to this import. */
+    touchImport(id) {
+        this.db.prepare('UPDATE imports SET last_added_at = ? WHERE id = ?').run(Date.now(), id);
+    }
+
+    /** Imports with photos added since the frame last auto-switched to them (or never shown). */
     getUnshownImports() {
         return this.db.prepare(`
             SELECT im.* FROM imports im
-            WHERE im.shown_at IS NULL AND EXISTS (SELECT 1 FROM images i WHERE i.import_id = im.id)
+            WHERE (im.shown_at IS NULL OR im.last_added_at > im.shown_at)
+              AND EXISTS (SELECT 1 FROM images i WHERE i.import_id = im.id)
             ORDER BY im.created_at
         `).all();
     }
 
     renameImport(id, name) {
         return this.db.prepare('UPDATE imports SET name = ? WHERE id = ?').run(name || null, id).changes > 0;
+    }
+
+    /**
+     * Delete an import. Its photos stay in the library, untagged.
+     * @returns {number|null} photos untagged, or null if there was no such import
+     */
+    deleteImport(id) {
+        return this.db.transaction(() => {
+            if (!this.getImport(id)) return null;
+            const photos = this.db.prepare('UPDATE images SET import_id = NULL WHERE import_id = ?').run(id).changes;
+            this.db.prepare('DELETE FROM imports WHERE id = ?').run(id);
+            return photos;
+        })();
     }
 
     countImportImages(id) {

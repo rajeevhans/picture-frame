@@ -851,4 +851,9 @@ body.show-cursor {
 }
 .event-name:hover, .event-name:focus { border-color: rgba(255, 255, 255, 0.25); outline: none; }
 .event-meta { font-size: 13px; color: #999; margin-top: 2px; }
-.event-show { flex: 0 0 auto; padding: 8px 16px; }
+.event-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.event-actions .btn { padding: 8px 14px; }
+@media (max-width: 600px) {
+    .event-card { flex-wrap: wrap; }
+    .event-actions { width: 100%; justify-content: flex-end; }
+}
