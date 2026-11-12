@@ -66,6 +66,7 @@ metadata {
         attribute 'shuffle', 'enum', ['on', 'off']
         attribute 'fillScreen', 'enum', ['on', 'off']   // landscape photos cropped to fill the screen
         attribute 'fillMaxCrop', 'number'               // most of a photo that may be cropped, percent
+        attribute 'sideBySide', 'enum', ['on', 'off']   // portraits shown 2 or 3 to a screen
         attribute 'slideshowMode', 'string'
         attribute 'slideshowOrder', 'string'
         attribute 'slideInterval', 'number'
@@ -89,6 +90,9 @@ metadata {
         command 'fillScreenOff'
         command 'toggleFillScreen'
         command 'setFillMaxCrop', [[name: 'Percent*', type: 'NUMBER', description: '5 to 50. 16 fills 3:2 photos, 25 also fills 4:3 phone photos']]
+        command 'sideBySideOn'
+        command 'sideBySideOff'
+        command 'toggleSideBySide'
         command 'setSlideInterval', [[name: 'Seconds*', type: 'ENUM', constraints: INTERVALS]]
         command 'setSlideshowMode', [[name: 'Mode*', type: 'ENUM', constraints: MODES]]
         command 'setSlideshowOrder', [[name: 'Order*', type: 'ENUM', constraints: ORDERS]]
@@ -241,6 +245,11 @@ void fillScreenOn() { updateSettings([fillLandscape: true]) }
 void fillScreenOff() { updateSettings([fillLandscape: false]) }
 void toggleFillScreen() { updateSettings([fillLandscape: device.currentValue('fillScreen') != 'on']) }
 void setFillMaxCrop(percent) { updateSettings([fillMaxCrop: Math.round(percent as BigDecimal) as Integer]) }
+
+// Side by side: portrait and square photos shown 2 or 3 to a screen
+void sideBySideOn() { updateSettings([sideBySide: true]) }
+void sideBySideOff() { updateSettings([sideBySide: false]) }
+void toggleSideBySide() { updateSettings([sideBySide: device.currentValue('sideBySide') != 'on']) }
 
 void setSlideInterval(seconds) { updateSettings([interval: seconds as Integer]) }
 void setSlideshowMode(String mode) { updateSettings([mode: mode]) }
@@ -456,6 +465,7 @@ private void updateSettingsAttributes(Map s) {
     if (s.shuffle != null) updateAttr('shuffle', s.shuffle ? 'on' : 'off')
     if (s.fillLandscape != null) updateAttr('fillScreen', s.fillLandscape ? 'on' : 'off')
     if (s.fillMaxCrop != null) updateAttr('fillMaxCrop', s.fillMaxCrop as Integer)
+    if (s.sideBySide != null) updateAttr('sideBySide', s.sideBySide ? 'on' : 'off')
     if (s.mode) updateAttr('slideshowMode', s.mode as String)
     if (s.order) updateAttr('slideshowOrder', s.order as String)
     if (s.interval != null) updateAttr('slideInterval', s.interval as Integer)
@@ -473,7 +483,7 @@ private void updateTvPower(String powerState) {
 private void updateAttr(String name, value) {
     if (device.currentValue(name) == value) return
     sendEvent(name: name, value: value, descriptionText: "${device.displayName} ${name} is ${value}")
-    if (name in ['switch', 'transportStatus', 'favoritesOnly', 'nonFavoritesOnly', 'importFilter', 'shuffle', 'fillScreen', 'photoFavorite', 'tvPower']) logInfo "${name} is ${value}"
+    if (name in ['switch', 'transportStatus', 'favoritesOnly', 'nonFavoritesOnly', 'importFilter', 'shuffle', 'fillScreen', 'sideBySide', 'photoFavorite', 'tvPower']) logInfo "${name} is ${value}"
 }
 
 private void logInfo(String msg) { if (txtEnable) log.info "${device.displayName}: ${msg}" }

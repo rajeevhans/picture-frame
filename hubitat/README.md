@@ -34,6 +34,7 @@ The hub must be able to reach the frame. If the hub is on a different subnet, ch
 | Show Latest Import | Shows only the most recent event import |
 | Fill Screen On / Fill Screen Off / Toggle Fill Screen | Crop landscape photos to fill the screen (faces kept in view) |
 | Set Fill Max Crop | Most of a photo that may be cut off to fill the screen, 5–50 percent |
+| Side By Side On / Side By Side Off / Toggle Side By Side | Show portrait photos 2 or 3 to a screen. Photo attributes and commands use the first (left) photo |
 | Set Slide Interval | 5, 10, 15, 30, 60 or 300 seconds |
 | Set Slideshow Mode | sequential, random, smart, artistic |
 | Set Slideshow Order | date, filename, thisday. Choosing one turns shuffle off |
@@ -74,6 +75,7 @@ Delete is deliberately not mapped to a button.
 | `importFilter`, `importName` | Event import being shown, or `none` |
 | `shuffle` | `on` / `off` |
 | `fillScreen`, `fillMaxCrop` | `on` / `off`, and the crop limit in percent |
+| `sideBySide` | `on` / `off` |
 | `slideshowMode`, `slideshowOrder`, `slideInterval` | Current slideshow settings |
 | `eventStream` | `connected` / `disconnected` |
 
