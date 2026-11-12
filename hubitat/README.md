@@ -32,6 +32,8 @@ The hub must be able to reach the frame. If the hub is on a different subnet, ch
 | Show All Photos | Clears every filter (favorites, non-favorites, event import) |
 | Show Import | Shows only one event import, by ID (e.g. `2026-11-05`) |
 | Show Latest Import | Shows only the most recent event import |
+| Fill Screen On / Fill Screen Off / Toggle Fill Screen | Crop landscape photos to fill the screen (faces kept in view) |
+| Set Fill Max Crop | Most of a photo that may be cut off to fill the screen, 5–50 percent |
 | Set Slide Interval | 5, 10, 15, 30, 60 or 300 seconds |
 | Set Slideshow Mode | sequential, random, smart, artistic |
 | Set Slideshow Order | date, filename, thisday. Choosing one turns shuffle off |
@@ -71,6 +73,7 @@ Delete is deliberately not mapped to a button.
 | `nonFavoritesOnly` | `on` / `off` |
 | `importFilter`, `importName` | Event import being shown, or `none` |
 | `shuffle` | `on` / `off` |
+| `fillScreen`, `fillMaxCrop` | `on` / `off`, and the crop limit in percent |
 | `slideshowMode`, `slideshowOrder`, `slideInterval` | Current slideshow settings |
 | `eventStream` | `connected` / `disconnected` |
 

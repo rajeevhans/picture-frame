@@ -64,6 +64,8 @@ metadata {
         attribute 'importFilter', 'string'     // event import shown on its own ('none' when off)
         attribute 'importName', 'string'
         attribute 'shuffle', 'enum', ['on', 'off']
+        attribute 'fillScreen', 'enum', ['on', 'off']   // landscape photos cropped to fill the screen
+        attribute 'fillMaxCrop', 'number'               // most of a photo that may be cropped, percent
         attribute 'slideshowMode', 'string'
         attribute 'slideshowOrder', 'string'
         attribute 'slideInterval', 'number'
@@ -83,6 +85,10 @@ metadata {
         command 'showImport', [[name: 'Import ID*', type: 'STRING', description: 'e.g. 2026-11-05 (see Settings → Events on the frame)']]
         command 'showLatestImport'
         command 'toggleFavoritesOnly'
+        command 'fillScreenOn'
+        command 'fillScreenOff'
+        command 'toggleFillScreen'
+        command 'setFillMaxCrop', [[name: 'Percent*', type: 'NUMBER', description: '5 to 50. 16 fills 3:2 photos, 25 also fills 4:3 phone photos']]
         command 'setSlideInterval', [[name: 'Seconds*', type: 'ENUM', constraints: INTERVALS]]
         command 'setSlideshowMode', [[name: 'Mode*', type: 'ENUM', constraints: MODES]]
         command 'setSlideshowOrder', [[name: 'Order*', type: 'ENUM', constraints: ORDERS]]
@@ -229,6 +235,12 @@ void toggleFavoritesOnly() {
     if (showingImport()) { showFavorites(); return }
     setFavoritesOnly(device.currentValue('favoritesOnly') != 'on')
 }
+
+// Fill screen: crop landscape photos to fill the screen (faces kept in view)
+void fillScreenOn() { updateSettings([fillLandscape: true]) }
+void fillScreenOff() { updateSettings([fillLandscape: false]) }
+void toggleFillScreen() { updateSettings([fillLandscape: device.currentValue('fillScreen') != 'on']) }
+void setFillMaxCrop(percent) { updateSettings([fillMaxCrop: Math.round(percent as BigDecimal) as Integer]) }
 
 void setSlideInterval(seconds) { updateSettings([interval: seconds as Integer]) }
 void setSlideshowMode(String mode) { updateSettings([mode: mode]) }
@@ -442,6 +454,8 @@ private void updateSettingsAttributes(Map s) {
         updateAttr('importName', s.importFilter ? (s.importName ?: s.importFilter) : 'none')
     }
     if (s.shuffle != null) updateAttr('shuffle', s.shuffle ? 'on' : 'off')
+    if (s.fillLandscape != null) updateAttr('fillScreen', s.fillLandscape ? 'on' : 'off')
+    if (s.fillMaxCrop != null) updateAttr('fillMaxCrop', s.fillMaxCrop as Integer)
     if (s.mode) updateAttr('slideshowMode', s.mode as String)
     if (s.order) updateAttr('slideshowOrder', s.order as String)
     if (s.interval != null) updateAttr('slideInterval', s.interval as Integer)
@@ -459,7 +473,7 @@ private void updateTvPower(String powerState) {
 private void updateAttr(String name, value) {
     if (device.currentValue(name) == value) return
     sendEvent(name: name, value: value, descriptionText: "${device.displayName} ${name} is ${value}")
-    if (name in ['switch', 'transportStatus', 'favoritesOnly', 'nonFavoritesOnly', 'importFilter', 'shuffle', 'photoFavorite', 'tvPower']) logInfo "${name} is ${value}"
+    if (name in ['switch', 'transportStatus', 'favoritesOnly', 'nonFavoritesOnly', 'importFilter', 'shuffle', 'fillScreen', 'photoFavorite', 'tvPower']) logInfo "${name} is ${value}"
 }
 
 private void logInfo(String msg) { if (txtEnable) log.info "${device.displayName}: ${msg}" }
