@@ -184,6 +184,7 @@ Both UIs receive real-time updates via SSE. The slideshow timer is server-author
 - **Order**: Date taken, filename, or "This Day in History"
 - **Interval**: 5 seconds to 5 minutes between images
 - **Date & location text size**: Font size of the bottom-left date · location line, 24–240 px (default 85). Previews live while dragging, and is shared with every screen once saved
+- **Fill the screen with landscape photos**: Crops landscape photos to fill the screen, up to a set limit (default 16%), keeping faces in view. See [Fill Screen](#fill-screen). Shortcut: Ctrl/Cmd+C
 - **Filters**: Show favorites only, show non-favorites only (the two are mutually exclusive), or restrict to a custom SQL filter
 - **System**: Restart server, reset database
 
@@ -248,6 +249,9 @@ sudo journalctl -u pictureframe-display.service -f
     "rateLimitMs": 1000,
     "maxImageSize": 1024,
     "runOnStartup": true
+  },
+  "faceDetection": {
+    "enabled": true
   }
 }
 ```
@@ -255,6 +259,7 @@ sudo journalctl -u pictureframe-display.service -f
 - `debug.enabled` — turns on the structured logger (writes to `data/debug.log`). Off by default.
 - `auth` — optional shared-secret gate, see [Authentication](#authentication) below. Disabled by default.
 - `artisticScore` — optional AI photo scoring, see [Artistic Scoring](#artistic-scoring) below. Disabled by default.
+- `faceDetection.enabled` — find faces for the fill-screen crop, see [Fill Screen](#fill-screen). On by default; only does anything on macOS.
 
 ### Config Override
 
@@ -364,6 +369,17 @@ Show just the photos from an event at home, for example while guests are over.
 **Settings → Events** lists every import (cover, name, ID, photo count). Use **Show** to show one, **Rename** to change its name, **Delete** to remove the event (its photos stay in the library), and **Show all photos** to go back. While an import is shown, the favorites, non-favorites and SQL filters and the "This Day" order are ignored but kept, so **Show all photos** restores them. Turning on a favorites or SQL filter yourself leaves the import view. Event photos stay in the normal library afterwards.
 
 If the frame restarts during a copy, photos left in `imports/` are picked up at startup.
+
+## Fill Screen
+
+Landscape photos that aren't the screen's shape normally show whole, with a color-matched mat around them. **Settings → Slideshow → Fill the screen with landscape photos** (or **Ctrl/Cmd+C**, the Fill button on `/remote`, or Hubitat) zooms them to fill the screen instead.
+
+- **Crop at most** (5–50%, default 16%) limits how much of a photo may be cut off. Photos that would lose more keep the mat. On a 16:9 screen, 16% fills 3:2 camera photos and 16:9 photos; 25% also fills 4:3 phone photos; panoramas wider than about 2:1 need more.
+- **Faces stay in the picture.** The crop is positioned so every main face fits, with room for hair. If they can't all fit, the photo isn't cropped. Small background faces (under a third of the biggest face's height, or under 2.5% of the photo's height) don't count.
+- **No faces:** the crop sits slightly above center (40% of what's cut comes off the top).
+- Portrait and square photos are never cropped.
+
+Faces are found once per photo by Apple's Vision framework on the frame's Mac (`macos/face-detect.swift`, compiled into `data/bin/` on first start; needs the Xcode command line tools). It runs in the background at low priority, about 30 ms per photo, newest photos first, and new or rotated photos are checked as they arrive. Settings shows the progress. Until a photo has been checked, and always on non-Mac setups, it's treated as having no faces. Nothing leaves the machine.
 
 ## Hubitat
 
@@ -494,7 +510,8 @@ POST /api/slideshow/shuffle        # New random order (no repeats until all show
 
 # Settings
 GET  /api/settings                 # Get slideshow settings
-POST /api/settings                 # Update settings (mode, order, interval, favoritesOnly, nonFavoritesOnly, shuffle, overlayFontSize, importFilter, filterSql)
+POST /api/settings                 # Update settings (mode, order, interval, favoritesOnly, nonFavoritesOnly, shuffle, overlayFontSize, fillLandscape, fillMaxCrop, importFilter, filterSql)
+GET  /api/faces/status             # Face detection progress: { enabled, offReason, available, building, pending, error }
 POST /api/settings/restart         # Exit the server process (a supervisor — systemd/pm2/Electron — restarts it)
 
 # Event imports (see "Event Imports")

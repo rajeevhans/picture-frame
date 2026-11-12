@@ -16,7 +16,8 @@ const state = {
     toastTimer: null,
     overlayImageId: null,  // photo the date/location overlay currently describes
     overlayText: '',       // its date · location text ('' if none)
-    overlayFontSizeEditing: false  // slider moved but not yet saved/cancelled
+    overlayFontSizeEditing: false, // slider moved but not yet saved/cancelled
+    fillEditing: false             // fill checkbox/slider changed but not yet saved/cancelled
 };
 
 // DOM elements
@@ -54,6 +55,10 @@ const elements = {
     intervalSelect: document.getElementById('intervalSelect'),
     overlayFontSizeRange: document.getElementById('overlayFontSizeRange'),
     overlayFontSizeValue: document.getElementById('overlayFontSizeValue'),
+    fillLandscapeCheck: document.getElementById('fillLandscapeCheck'),
+    fillMaxCropRange: document.getElementById('fillMaxCropRange'),
+    fillMaxCropValue: document.getElementById('fillMaxCropValue'),
+    faceStatus: document.getElementById('faceStatus'),
     favoritesOnlyCheck: document.getElementById('favoritesOnlyCheck'),
     nonFavoritesOnlyCheck: document.getElementById('nonFavoritesOnlyCheck'),
     shuffleCheck: document.getElementById('shuffleCheck'),
@@ -174,9 +179,14 @@ function handleSSEMessage(data) {
                 const tempImg = new Image();
                 const newImageUrl = imageServeUrl(imageId, { cacheBuster });
 
+                // Its face boxes were for the old orientation (found again server-side)
+                state.currentImage.faces = null;
+
                 tempImg.onload = async () => {
                     // Once loaded, update the current image
                     currentEl.src = newImageUrl;
+                    await currentEl.decode().catch(() => {});
+                    applyFill(currentEl, state.currentImage);
                     console.log('SSE: Rotated image reloaded successfully');
                     // Apply matting background for rotated image
                     await applyMattingBackground(currentEl);
@@ -490,6 +500,8 @@ async function saveSettings() {
         order: elements.orderSelect.value,
         interval: parseInt(elements.intervalSelect.value),
         overlayFontSize: parseInt(elements.overlayFontSizeRange.value),
+        fillLandscape: elements.fillLandscapeCheck.checked,
+        fillMaxCrop: parseInt(elements.fillMaxCropRange.value),
         favoritesOnly: elements.favoritesOnlyCheck.checked,
         nonFavoritesOnly: elements.nonFavoritesOnlyCheck.checked,
         shuffle: elements.shuffleCheck.checked,
@@ -510,6 +522,7 @@ async function saveSettings() {
         }
 
         state.overlayFontSizeEditing = false;
+        state.fillEditing = false;
         updateSettings(data.settings);
         closeSettings();
 
@@ -581,6 +594,23 @@ async function loadStats() {
     } catch (error) {
         console.error('Failed to load stats:', error);
     }
+    loadFaceStatus();
+}
+
+async function loadFaceStatus() {
+    try {
+        const f = await apiCall('/faces/status');
+        elements.faceStatus.textContent = !f.enabled
+            ? (f.offReason === 'config'
+                ? 'Face detection is turned off in the config (faceDetection.enabled), so crops sit slightly above center.'
+                : 'Face detection needs macOS, so crops sit slightly above center.')
+            : f.error ? f.error
+            : f.building ? 'Getting face detection ready...'
+            : f.pending ? `Finding faces: ${f.pending.toLocaleString()} photo${f.pending === 1 ? '' : 's'} still to check. Until then a photo's crop sits slightly above center.`
+            : 'Faces found for every photo.';
+    } catch (error) {
+        elements.faceStatus.textContent = '';
+    }
 }
 
 // Display functions
@@ -635,8 +665,10 @@ function displayFirstImage(image, imageUrl) {
     elements.nextImage.classList.remove('current', 'next');
     elements.nextImage.style.zIndex = '';
 
+    elements.mainImage.pfImage = image;
     elements.mainImage.onload = () => {
         skipMissingCount = 0;
+        applyFill(elements.mainImage, image);
         elements.mainImage.style.opacity = '1';
         updateInfoOverlay(image);
         updateLocationOverlay(image);
@@ -675,6 +707,7 @@ function displayWithCrossfade(image, imageUrl) {
     nextImg.style.zIndex = '3'; // Ensure it's above current during transition
     nextImg.src = imageUrl;
     nextImg.alt = image.filename;
+    nextImg.pfImage = image;
 
     // Wait for image to load before crossfading
     nextImg.onload = () => {
@@ -720,6 +753,8 @@ function displayImage(image, preloadList = []) {
 }
 
 function swapImages(currentImg, nextImg, image) {
+    nextImg.pfImage = image;
+    applyFill(nextImg, image);
     // Crossfade: fade out current, fade in next
     // Remove all classes from old image and ensure it's below the new one
     currentImg.classList.remove('current', 'next');
@@ -1003,6 +1038,9 @@ async function rotateImage(direction) {
             const tempImg = new Image();
             const newImageUrl = imageServeUrl(imageId, { cacheBuster: newCacheBuster() });
 
+            // Its face boxes were for the old orientation (found again server-side)
+            if (state.currentImage) state.currentImage.faces = null;
+
             tempImg.onload = async () => {
                 // Once the rotated image is loaded, update the display
                 currentImg.src = newImageUrl;
@@ -1010,6 +1048,9 @@ async function rotateImage(direction) {
                 if (state.currentImage) {
                     state.currentImage.rotation = 0;
                 }
+                // New shape: portrait/landscape may have swapped
+                await currentImg.decode().catch(() => {});
+                applyFill(currentImg, state.currentImage);
                 console.log('Rotated image reloaded successfully');
                 // Apply matting background for rotated image
                 await applyMattingBackground(currentImg);
@@ -1029,8 +1070,74 @@ async function rotateImage(direction) {
     }
 }
 
+/**
+ * Fill screen: crop a landscape photo to fill the screen (object-fit: cover)
+ * when Settings allow it, keeping faces in view; otherwise show it whole.
+ */
+function applyFill(imgEl, image) {
+    const s = state.settings;
+    const result = s && s.fillLandscape && image && imgEl.naturalWidth
+        ? window.PictureFrameFill.compute({
+            imgW: imgEl.naturalWidth,
+            imgH: imgEl.naturalHeight,
+            screenW: window.innerWidth,
+            screenH: window.innerHeight,
+            faces: image.faces,
+            maxCrop: s.fillMaxCrop
+        })
+        : null;
+    if (result && result.fill) {
+        imgEl.style.objectFit = 'cover';
+        imgEl.style.objectPosition = `${result.x.toFixed(1)}% ${result.y.toFixed(1)}%`;
+    } else {
+        imgEl.style.objectFit = '';
+        imgEl.style.objectPosition = '';
+    }
+    imgEl.dataset.fill = result ? result.reason : 'off';
+}
+
+/** Re-apply fill to the photos on screen (setting changed, window resized). */
+function refreshFill() {
+    for (const imgEl of [elements.mainImage, elements.nextImage]) {
+        if (imgEl.pfImage && imgEl.complete) applyFill(imgEl, imgEl.pfImage);
+    }
+}
+
+function updateFillControls(settings) {
+    elements.fillLandscapeCheck.checked = !!settings.fillLandscape;
+    if (settings.fillMaxCrop) {
+        elements.fillMaxCropRange.value = settings.fillMaxCrop;
+        elements.fillMaxCropValue.textContent = `${settings.fillMaxCrop}%`;
+    }
+}
+
+async function toggleFillLandscape() {
+    if (!state.settings) return;
+    try {
+        // The toast comes from updateSettings, like a change from the remote
+        const data = await apiCall('/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fillLandscape: !state.settings.fillLandscape })
+        });
+        updateSettings(data.settings);
+    } catch (error) {
+        console.error('Failed to toggle fill screen:', error);
+        showToast('Fill screen failed');
+    }
+}
+
 function updateSettings(settings) {
     if (!settings) return;
+
+    // Announce fill screen changes from any source (shortcut, panel, remote, Hubitat)
+    const fillChanged = state.settings && (state.settings.fillLandscape !== settings.fillLandscape
+        || (settings.fillLandscape && state.settings.fillMaxCrop !== settings.fillMaxCrop));
+    if (fillChanged) {
+        showToast(settings.fillLandscape
+            ? `Fill screen on · crops up to ${settings.fillMaxCrop}%`
+            : 'Fill screen off');
+    }
 
     // Skip the initial load; after that, announce filter changes from any source (shortcut, panel, remote)
     const filterChanged = state.settings && favoritesFilter(state.settings) !== favoritesFilter(settings);
@@ -1066,6 +1173,9 @@ function updateSettings(settings) {
     if (elements.filterSqlTextarea) {
         elements.filterSqlTextarea.value = settings.filterSql || '';
     }
+    // Settings arrive with every photo: don't undo an unsaved edit
+    if (!state.fillEditing) updateFillControls(settings);
+    if (fillChanged) refreshFill();
 }
 
 function updateClock() {
@@ -1591,6 +1701,8 @@ function closeSettings() {
         elements.overlayFontSizeRange.value = state.settings.overlayFontSize;
         applyOverlayFontSize(state.settings.overlayFontSize);
     }
+    state.fillEditing = false;
+    if (state.settings) updateFillControls(state.settings);   // drop unsaved changes
     if (window.PictureFrameTvRemote) window.PictureFrameTvRemote.hide();
 }
 
@@ -1666,6 +1778,20 @@ function setupEventListeners() {
         applyOverlayFontSize(parseInt(elements.overlayFontSizeRange.value));
     });
 
+    // Fill screen crop limit: show the value while dragging (Save applies it)
+    elements.fillMaxCropRange.addEventListener('input', () => {
+        state.fillEditing = true;
+        elements.fillMaxCropValue.textContent = `${elements.fillMaxCropRange.value}%`;
+    });
+    elements.fillLandscapeCheck.addEventListener('change', () => { state.fillEditing = true; });
+
+    // The screen's shape decides how much a photo is cropped
+    let fillResizeTimer = null;
+    window.addEventListener('resize', () => {
+        clearTimeout(fillResizeTimer);
+        fillResizeTimer = setTimeout(refreshFill, 200);
+    });
+
     // The two favorites filters are mutually exclusive
     elements.favoritesOnlyCheck.addEventListener('change', () => {
         if (elements.favoritesOnlyCheck.checked) elements.nonFavoritesOnlyCheck.checked = false;
@@ -1734,6 +1860,14 @@ function setupEventListeners() {
                     toggleFavorite();
                 }
                 showControls();
+                break;
+            case 'c':
+            case 'C':
+                if (e.ctrlKey || e.metaKey) {
+                    // Ctrl+C or Cmd+C toggles fill screen for landscape photos
+                    e.preventDefault();
+                    toggleFillLandscape();
+                }
                 break;
             case 'd':
             case 'D':

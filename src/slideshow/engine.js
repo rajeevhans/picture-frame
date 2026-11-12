@@ -7,6 +7,9 @@ const VALID_MODES = Object.freeze(['sequential', 'random', 'smart', 'artistic'])
 const VALID_ORDERS = Object.freeze(['date', 'filename', 'thisday']);
 // Font size (px) of the bottom-left date · location line on the display.
 const OVERLAY_FONT_SIZE = Object.freeze({ min: 24, max: 240, default: 85 });
+// Fill screen: the most (percent of the photo) a landscape photo may be
+// cropped to fill the screen. 16 fills 3:2 photos on a 16:9 screen.
+const FILL_MAX_CROP = Object.freeze({ min: 5, max: 50, default: 16 });
 
 /**
  * Error type thrown by SlideshowEngine.updateSettings when input fails
@@ -49,6 +52,10 @@ class SlideshowEngine {
             shuffle: false,
             shuffleSeed: 0,
             overlayFontSize: OVERLAY_FONT_SIZE.default,
+            // Crop landscape photos to fill the screen, when that cuts off
+            // at most fillMaxCrop percent (the display does the cropping).
+            fillLandscape: false,
+            fillMaxCrop: FILL_MAX_CROP.default,
             // Event import shown on its own ('' = off). While set, the
             // favorites/non-favorites/SQL filters and 'this day' are ignored
             // (but kept, so clearing it restores them).
@@ -99,6 +106,8 @@ class SlideshowEngine {
         this.db.seedSetting('filter_favorites_only', '0');
         this.db.seedSetting('filter_non_favorites_only', '0');
         this.db.seedSetting('overlay_font_size', OVERLAY_FONT_SIZE.default);
+        this.db.seedSetting('fill_landscape', '0');
+        this.db.seedSetting('fill_max_crop', FILL_MAX_CROP.default);
         this.db.seedSetting('current_image_id', '0');
 
         // Load settings from database
@@ -135,6 +144,13 @@ class SlideshowEngine {
         if (savedSettings.overlay_font_size) {
             const size = parseInt(savedSettings.overlay_font_size);
             if (size >= OVERLAY_FONT_SIZE.min && size <= OVERLAY_FONT_SIZE.max) this.settings.overlayFontSize = size;
+        }
+        if (savedSettings.fill_landscape) {
+            this.settings.fillLandscape = savedSettings.fill_landscape === '1';
+        }
+        if (savedSettings.fill_max_crop) {
+            const pct = parseInt(savedSettings.fill_max_crop);
+            if (pct >= FILL_MAX_CROP.min && pct <= FILL_MAX_CROP.max) this.settings.fillMaxCrop = pct;
         }
         if (savedSettings.current_image_id) {
             this.currentImageId = parseInt(savedSettings.current_image_id);
@@ -580,6 +596,8 @@ class SlideshowEngine {
         // aren't (yet) part of that shared shape.
         return {
             ...this.db.formatImage(image),
+            // Read fresh: the in-memory list predates the background face check
+            faces: this.db.getFaces ? this.db.getFaces(image.id) : null,
             artisticScore: image.artistic_score || null,
             artisticScoreDetails: image.artistic_score_details
                 ? JSON.parse(image.artistic_score_details)
@@ -597,6 +615,8 @@ class SlideshowEngine {
             filterSql: this.settings.filterSql || '',
             shuffle: this._isShuffled(),
             overlayFontSize: this.settings.overlayFontSize,
+            fillLandscape: this.settings.fillLandscape,
+            fillMaxCrop: this.settings.fillMaxCrop,
             importFilter: this.settings.importFilter || '',
             importName: this._importName(),
             totalImages: this.imageList.length
@@ -676,6 +696,20 @@ class SlideshowEngine {
             normalized.shuffle = input.shuffle === true || input.shuffle === 'true';
         }
 
+        if (input.fillLandscape !== undefined) {
+            normalized.fillLandscape = input.fillLandscape === true || input.fillLandscape === 'true';
+        }
+
+        if (input.fillMaxCrop !== undefined) {
+            const pct = Number(input.fillMaxCrop);
+            if (!Number.isInteger(pct) || pct < FILL_MAX_CROP.min || pct > FILL_MAX_CROP.max) {
+                throw new SettingsValidationError(
+                    `Invalid fillMaxCrop. Must be a whole number from ${FILL_MAX_CROP.min} to ${FILL_MAX_CROP.max} (percent)`
+                );
+            }
+            normalized.fillMaxCrop = pct;
+        }
+
         return normalized;
     }
 
@@ -743,6 +777,16 @@ class SlideshowEngine {
         if (updates.overlayFontSize !== undefined) {
             this.settings.overlayFontSize = updates.overlayFontSize;
             this.db.setSetting('overlay_font_size', updates.overlayFontSize);
+        }
+
+        if (updates.fillLandscape !== undefined) {
+            this.settings.fillLandscape = updates.fillLandscape;
+            this.db.setSetting('fill_landscape', updates.fillLandscape ? '1' : '0');
+        }
+
+        if (updates.fillMaxCrop !== undefined) {
+            this.settings.fillMaxCrop = updates.fillMaxCrop;
+            this.db.setSetting('fill_max_crop', updates.fillMaxCrop);
         }
 
         if (updates.interval !== undefined) {
@@ -962,5 +1006,6 @@ module.exports.SettingsValidationError = SettingsValidationError;
 module.exports.VALID_MODES = VALID_MODES;
 module.exports.VALID_ORDERS = VALID_ORDERS;
 module.exports.OVERLAY_FONT_SIZE = OVERLAY_FONT_SIZE;
+module.exports.FILL_MAX_CROP = FILL_MAX_CROP;
 
 

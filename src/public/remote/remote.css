@@ -104,7 +104,7 @@ body {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(9, 52px);
+  grid-template-columns: repeat(10, 52px);
   gap: 12px;
   justify-content: center;
   overflow-x: auto;
@@ -140,6 +140,11 @@ body {
 .icon {
   width: 26px;
   height: 26px;
+}
+
+.btn-toggle.on {
+  background: rgba(37,99,235,0.45);
+  border-color: rgba(96,165,250,0.8);
 }
 
 .btn-warn.on {

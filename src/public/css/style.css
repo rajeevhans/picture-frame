@@ -819,6 +819,9 @@ body.show-cursor {
 .tv-numgrid button { height: 48px; border-radius: 12px; font-size: 17px; }
 .tv-row-extra { flex-wrap: wrap; }
 
+/* Fill screen: the crop-limit slider sits under its checkbox */
+.settings-group label.sub-label { margin-top: 10px; font-weight: normal; color: #ccc; }
+
 /* Date & location text size slider */
 .font-size-row { display: flex; align-items: center; gap: 14px; }
 .font-size-row input[type="range"] { flex: 1; accent-color: #4CAF50; cursor: pointer; }

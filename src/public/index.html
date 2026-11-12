@@ -218,6 +218,20 @@
 
                     <div class="settings-group">
                         <label>
+                            <input type="checkbox" id="fillLandscapeCheck">
+                            Fill the screen with landscape photos
+                        </label>
+                        <label for="fillMaxCropRange" class="sub-label">Crop at most</label>
+                        <div class="font-size-row">
+                            <input type="range" id="fillMaxCropRange" min="5" max="50" step="1" value="16">
+                            <span id="fillMaxCropValue" class="font-size-value">16%</span>
+                        </div>
+                        <p class="settings-help">Zooms a landscape photo to fill the screen when no more than this much of it is cut off; others keep the mat. Faces stay in the picture (if they can't all fit, the photo isn't cropped); without faces the crop sits slightly above center. 16% fills 3:2 camera photos, 25% also fills 4:3 phone photos. Portrait photos are never cropped. Shortcut: Ctrl/Cmd+C.</p>
+                        <p class="settings-help" id="faceStatus"></p>
+                    </div>
+
+                    <div class="settings-group">
+                        <label>
                             <input type="checkbox" id="favoritesOnlyCheck">
                             Show favorites only
                         </label>
@@ -412,6 +426,7 @@
     <script src="/js/duplicates.js"></script>
     <script src="/js/tvremote.js"></script>
     <script src="/js/events.js"></script>
+    <script src="/js/fill.js"></script>
     <script src="/js/app.js"></script>
 </body>
 </html>

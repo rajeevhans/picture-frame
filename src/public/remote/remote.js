@@ -11,6 +11,7 @@ const els = {
   pauseBtn: document.getElementById('pauseBtn'),
   startBtn: document.getElementById('startBtn'),
   shuffleBtn: document.getElementById('shuffleBtn'),
+  fillBtn: document.getElementById('fillBtn'),
   favoriteBtn: document.getElementById('favoriteBtn'),
   rotateLeftBtn: document.getElementById('rotateLeftBtn'),
   rotateRightBtn: document.getElementById('rotateRightBtn'),
@@ -52,6 +53,15 @@ function updateNowPlaying() {
   }
 }
 
+function updateFillButton() {
+  const on = !!(state.settings && state.settings.fillLandscape);
+  els.fillBtn.classList.toggle('on', on);
+  els.fillBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  els.fillBtn.title = on
+    ? `Fill screen is on (crops up to ${state.settings.fillMaxCrop}%). Tap to turn off`
+    : 'Fill screen with landscape photos';
+}
+
 function updatePlayButtons() {
   if (state.isPlaying) {
     els.startBtn.disabled = true;
@@ -73,6 +83,7 @@ function setBusy(busy) {
     els.pauseBtn,
     els.startBtn,
     els.shuffleBtn,
+    els.fillBtn,
     els.favoriteBtn,
     els.rotateLeftBtn,
     els.rotateRightBtn,
@@ -117,6 +128,7 @@ function handleMessage(msg) {
       }
       updateNowPlaying();
       updatePlayButtons();
+      updateFillButton();
       break;
 
     case 'favorite':
@@ -128,6 +140,7 @@ function handleMessage(msg) {
 
     case 'settings':
       state.settings = msg.settings || state.settings;
+      updateFillButton();
       break;
 
     case 'slideshowState':
@@ -193,6 +206,23 @@ async function shuffle() {
   }
 }
 
+async function toggleFill() {
+  setBusy(true);
+  try {
+    if (!state.settings) state.settings = await apiCall('/settings');
+    const data = await apiCall('/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fillLandscape: !state.settings.fillLandscape })
+    });
+    state.settings = data.settings;
+    updateFillButton();
+    setStatus(state.settings.fillLandscape ? `Fill screen on (crops up to ${state.settings.fillMaxCrop}%)` : 'Fill screen off', 'ok');
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function toggleFavorite() {
   if (!state.currentImage) return;
   setBusy(true);
@@ -233,6 +263,7 @@ function wireUI() {
   els.pauseBtn.addEventListener('click', pause);
   els.startBtn.addEventListener('click', start);
   els.shuffleBtn.addEventListener('click', shuffle);
+  els.fillBtn.addEventListener('click', toggleFill);
   els.favoriteBtn.addEventListener('click', toggleFavorite);
   els.rotateLeftBtn.addEventListener('click', () => rotate('left'));
   els.rotateRightBtn.addEventListener('click', () => rotate('right'));

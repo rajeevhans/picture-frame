@@ -27,6 +27,9 @@
   "watcher": {
     "usePolling": false
   },
+  "faceDetection": {
+    "enabled": true
+  },
   "resize": {
     "maxWidth": 3840,
     "maxHeight": 2160,

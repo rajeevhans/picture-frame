@@ -477,6 +477,9 @@ function createImageRoutes(db, slideshowEngine, ctx) {
 
             // Bytes and perceptual hash both change on rotation — re-hash next scan.
             db.resetHashComputed(imageId);
+            // Face boxes are relative to the old orientation: find them again.
+            db.clearFaces(imageId);
+            if (ctx && ctx.wakeFaceDetection) ctx.wakeFaceDetection();
 
             console.log(`Rotated image ${imageId} left (counter-clockwise)`);
 
@@ -522,6 +525,9 @@ function createImageRoutes(db, slideshowEngine, ctx) {
 
             // Bytes and perceptual hash both change on rotation — re-hash next scan.
             db.resetHashComputed(imageId);
+            // Face boxes are relative to the old orientation: find them again.
+            db.clearFaces(imageId);
+            if (ctx && ctx.wakeFaceDetection) ctx.wakeFaceDetection();
 
             console.log(`Rotated image ${imageId} right (clockwise)`);
 

@@ -135,6 +135,18 @@ class DatabaseManager {
             console.log('Migration: added import_id column');
         }
         this.db.exec('CREATE INDEX IF NOT EXISTS idx_import_id ON images(import_id)');
+        // Face boxes for fill-screen cropping (services/faceDetection.js):
+        // faces = JSON [[x, y, w, h, confidence], ...] normalized to the
+        // upright photo, top-left origin; faces_checked = when it was looked
+        // at (NULL = not yet). A failed check stores faces NULL, checked set.
+        if (!cols.includes('faces')) {
+            this.db.exec('ALTER TABLE images ADD COLUMN faces TEXT');
+            console.log('Migration: added faces column');
+        }
+        if (!cols.includes('faces_checked')) {
+            this.db.exec('ALTER TABLE images ADD COLUMN faces_checked INTEGER');
+        }
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_faces_pending ON images(id) WHERE faces_checked IS NULL');
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS imports (
                 id TEXT PRIMARY KEY,          -- e.g. 2026-11-05, 2026-11-05-2
@@ -214,6 +226,38 @@ class DatabaseManager {
             }
         });
         return insert(images);
+    }
+
+    // ---- Face boxes (fill-screen cropping) ---------------------------------
+
+    /** Photos whose faces haven't been checked yet, newest first. */
+    getImagesNeedingFaces(limit) {
+        return this.db.prepare(
+            'SELECT id, filepath FROM images WHERE faces_checked IS NULL ORDER BY id DESC LIMIT ?'
+        ).all(limit);
+    }
+
+    /** @param {Array|null} faces - boxes, [] for none, null if the photo couldn't be read */
+    setFaces(id, faces) {
+        this.db.prepare('UPDATE images SET faces = ?, faces_checked = ? WHERE id = ?')
+            .run(faces ? JSON.stringify(faces) : null, Date.now(), id);
+    }
+
+    /** Forget a photo's faces so they're found again (e.g. after rotating it). */
+    clearFaces(id) {
+        this.db.prepare('UPDATE images SET faces = NULL, faces_checked = NULL WHERE id = ?').run(id);
+    }
+
+    /** @returns {Array|null} face boxes, or null if not checked (or unreadable) */
+    getFaces(id) {
+        if (!this._getFacesStmt) this._getFacesStmt = this.db.prepare('SELECT faces FROM images WHERE id = ?');
+        const row = this._getFacesStmt.get(id);
+        if (!row || !row.faces) return null;
+        try { return JSON.parse(row.faces); } catch (_) { return null; }
+    }
+
+    countFacesPending() {
+        return this.db.prepare('SELECT COUNT(*) AS n FROM images WHERE faces_checked IS NULL').get().n;
     }
 
     // ---- Event imports ---------------------------------------------------
@@ -859,6 +903,7 @@ class DatabaseManager {
         }
 
         this.db = new Database(this.dbPath);
+        this._getFacesStmt = null;   // prepared on the old connection
         this.db.pragma('journal_mode = WAL');
         this.db.pragma('synchronous = NORMAL');
         this.db.pragma('cache_size = -64000');

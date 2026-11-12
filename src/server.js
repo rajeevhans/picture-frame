@@ -14,6 +14,7 @@ const ArtisticScoringService = require('./services/artisticScoring');
 const DuplicateDetectionService = require('./services/duplicateDetection');
 const TvControlService = require('./services/tvControl');
 const ImportService = require('./services/imports');
+const FaceDetectionService = require('./services/faceDetection');
 const createImageRoutes = require('./routes/images');
 const createSettingsRoutes = require('./routes/settings');
 const { createAuthMiddleware } = require('./middleware/auth');
@@ -98,6 +99,9 @@ const importService = new ImportService(db, photoDir, {
 });
 scanner.importService = importService;
 
+// Faces for the fill-screen crop, found in the background (macOS only).
+const faceDetection = new FaceDetectionService(db, config);
+
 // Check command line arguments
 const args = process.argv.slice(2);
 const forceIndex = args.includes('--index') || args.includes('-i');
@@ -117,7 +121,8 @@ app.use('/api/image', createImageRoutes(db, slideshowEngine, {
     // the existing double-broadcast-on-delete behavior by also calling
     // engine.broadcastCurrentImage as before.
     advanceSlideshow: (direction) => slideshowEngine.advance(direction, 'api'),
-    broadcastCurrentImage: (image) => slideshowEngine.broadcastCurrentImage(image)
+    broadcastCurrentImage: (image) => slideshowEngine.broadcastCurrentImage(image),
+    wakeFaceDetection: () => faceDetection.wake()
 }));
 app.use('/api/settings', createSettingsRoutes(
     db,
@@ -146,6 +151,15 @@ app.get('/api/stats', (req, res) => {
 });
 
 // Health check
+// Face detection progress for the fill-screen setting
+app.get('/api/faces/status', (req, res) => {
+    try {
+        res.json(faceDetection.status());
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: Date.now() });
 });
@@ -292,7 +306,10 @@ async function startServer() {
     let watcher = null;
     if (fs.existsSync(photoDir) && !forceIndex) {
         watcher = new FileWatcher(db, scanner, config, {
-            onChange: () => slideshowEngine.refreshImageList({ keepPlace: true }) // files added/removed in place
+            onChange: () => {
+                slideshowEngine.refreshImageList({ keepPlace: true }); // files added/removed in place
+                faceDetection.wake();
+            }
         });
         watcher.start(photoDir);
 
@@ -316,6 +333,7 @@ async function startServer() {
         slideshowEngine.stopForShutdown();
         if (watcher) watcher.stop();
         importService.stop();
+        faceDetection.stop();
         sseClients.forEach(client => client.end());
         sseClients.clear();
         db.close();
@@ -354,6 +372,7 @@ async function startServer() {
         // Start background geolocation lookup
         if (!forceIndex) {
             startGeolocationLookup();
+            faceDetection.start().catch(err => console.error('Face detection failed:', err.message));
         }
 
         // Start background artistic scoring
