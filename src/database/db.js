@@ -243,6 +243,11 @@ class DatabaseManager {
             .run(faces ? JSON.stringify(faces) : null, Date.now(), id);
     }
 
+    /** A photo was rotated 90°: swap its stored width and height. */
+    swapDimensions(id) {
+        this.db.prepare('UPDATE images SET width = height, height = width WHERE id = ?').run(id);
+    }
+
     /** Forget a photo's faces so they're found again (e.g. after rotating it). */
     clearFaces(id) {
         this.db.prepare('UPDATE images SET faces = NULL, faces_checked = NULL WHERE id = ?').run(id);

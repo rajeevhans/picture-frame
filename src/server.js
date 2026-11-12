@@ -222,6 +222,7 @@ app.get('/api/events', (req, res) => {
         if (image) {
             const msg = imageMessage({
                 image,
+                group: slideshowEngine.getCurrentGroup(),
                 preload: slideshowEngine.getPreloadImages(),
                 settings: slideshowEngine.getSettings(),
                 isPlaying: slideshowEngine.isPlaying

@@ -56,7 +56,7 @@ function createImportRoutes(db, slideshowEngine, broadcastMessage, importService
                 const image = slideshowEngine.getCurrentImage();
                 if (broadcastMessage) {
                     broadcastMessage(image
-                        ? imageMessage({ image, preload: slideshowEngine.getPreloadImages(), settings })
+                        ? imageMessage({ image, group: slideshowEngine.getCurrentGroup(), preload: slideshowEngine.getPreloadImages(), settings })
                         : settingsMessage(settings));
                 }
             }

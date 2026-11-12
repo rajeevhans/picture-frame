@@ -80,6 +80,55 @@ body.show-cursor {
     opacity: 1;
 }
 
+/* Side by side: 2 or 3 portrait/square photos, one pane each */
+.group-stage {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.6s ease-in-out;
+    z-index: 4;   /* above the single-photo <img>s, below the overlays */
+}
+.group-stage.visible { opacity: 1; }
+.group-pane {
+    position: relative;
+    flex: none;
+    overflow: hidden;
+    cursor: pointer;
+}
+.group-pane img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+/* Picked with 1/2/3 or a tap: F, D, rotate, info and download act on it */
+.group-pane.selected::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 6px solid rgba(255, 255, 255, 0.85);
+    pointer-events: none;
+}
+.group-pane.deleting {
+    animation: deleteAnimation 0.4s ease-in forwards;
+}
+/* Each photo's date · location (size set by renderGroupLabels) */
+.group-label {
+    position: absolute;
+    left: 0.3em;
+    bottom: 0.25em;
+    padding: 0.1em 0.2em;
+    color: #fff;
+    font-weight: 300;
+    max-width: 92%;
+    line-height: 1.2;
+    transition: opacity 0.3s ease;
+}
+.group-label.hidden { opacity: 0; }
+
 /* Deletion animation */
 .main-image.deleting {
     animation: deleteAnimation 0.4s ease-in forwards;

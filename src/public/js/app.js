@@ -17,11 +17,15 @@ const state = {
     overlayImageId: null,  // photo the date/location overlay currently describes
     overlayText: '',       // its date · location text ('' if none)
     overlayFontSizeEditing: false, // slider moved but not yet saved/cancelled
-    fillEditing: false             // fill checkbox/slider changed but not yet saved/cancelled
+    layoutEditing: false,          // fill/side-by-side controls changed but not yet saved/cancelled
+    group: null,                   // side by side: the photos on screen (currentImage is group[0])
+    groupStage: null,              // their .group-stage element
+    groupSelected: null            // index picked with 1/2/3 or a tap (actions apply to it)
 };
 
 // DOM elements
 const elements = {
+    imageContainer: document.getElementById('imageContainer'),
     mainImage: document.getElementById('mainImage'),
     nextImage: document.getElementById('nextImage'),
     loadingIndicator: document.getElementById('loadingIndicator'),
@@ -56,6 +60,7 @@ const elements = {
     overlayFontSizeRange: document.getElementById('overlayFontSizeRange'),
     overlayFontSizeValue: document.getElementById('overlayFontSizeValue'),
     fillLandscapeCheck: document.getElementById('fillLandscapeCheck'),
+    sideBySideCheck: document.getElementById('sideBySideCheck'),
     fillMaxCropRange: document.getElementById('fillMaxCropRange'),
     fillMaxCropValue: document.getElementById('fillMaxCropValue'),
     faceStatus: document.getElementById('faceStatus'),
@@ -138,8 +143,8 @@ function connectToSSE() {
 function handleSSEMessage(data) {
     switch (data.type) {
         case 'image':
-            // Update current image
-            displayImage(data.image, data.preload);
+            // Update current image (group: photos shown side by side)
+            displayImage(data.image, data.preload, data.group);
             updateSettings(data.settings);
             if (typeof data.isPlaying === 'boolean') {
                 state.isPlaying = data.isPlaying;
@@ -149,10 +154,8 @@ function handleSSEMessage(data) {
             break;
             
         case 'favorite':
-            // Update favorite status
-            if (state.currentImage && state.currentImage.id === data.imageId) {
-                setCurrentFavorite(data.isFavorite);
-            }
+            // Update favorite status (any photo on screen)
+            setImageFavorite(data.imageId, data.isFavorite);
             break;
             
         case 'settings':
@@ -169,6 +172,10 @@ function handleSSEMessage(data) {
             break;
 
         case 'rotate':
+            if (state.group) {
+                reloadGroupPhoto(data.imageId, data.cacheBuster || newCacheBuster());
+                break;
+            }
             // Reload the currently displayed image with aggressive cache busting
             if (state.currentImage && state.currentImage.id === data.imageId) {
                 const cacheBuster = data.cacheBuster || newCacheBuster();
@@ -225,7 +232,7 @@ function handleSSEMessage(data) {
 async function loadCurrentImage() {
     try {
         const data = await apiCall('/image/current');
-        displayImage(data.image, data.preload);
+        displayImage(data.image, data.preload, data.group);
         updateSettings(data.settings);
         preloadImages(data.preload);
     } catch (error) {
@@ -257,7 +264,7 @@ async function loadNextImage() {
 
         // Fallback: if SSE isn't connected, use the response to update the UI.
         if (!state.eventSource || state.eventSource.readyState !== EventSource.OPEN) {
-            displayImage(data.image, data.preload);
+            displayImage(data.image, data.preload, data.group);
             updateSettings(data.settings);
             preloadImages(data.preload);
         }
@@ -286,7 +293,7 @@ async function loadPreviousImage() {
 
         // Fallback: if SSE isn't connected, use the response to update the UI.
         if (!state.eventSource || state.eventSource.readyState !== EventSource.OPEN) {
-            displayImage(data.image, data.preload);
+            displayImage(data.image, data.preload, data.group);
             updateSettings(data.settings);
             preloadImages(data.preload);
         }
@@ -296,14 +303,15 @@ async function loadPreviousImage() {
 }
 
 async function toggleFavorite() {
-    if (!state.currentImage) return;
-    
+    const target = targetImage();
+    if (!target) return;
+
     try {
-        const data = await apiCall(`/image/${state.currentImage.id}/favorite`, {
+        const data = await apiCall(`/image/${target.id}/favorite`, {
             method: 'POST'
         });
-        
-        setCurrentFavorite(data.isFavorite);
+
+        setImageFavorite(target.id, data.isFavorite);
     } catch (error) {
         console.error('Failed to toggle favorite:', error);
     }
@@ -311,7 +319,8 @@ async function toggleFavorite() {
 
 async function deleteImage() {
     if (!state.currentImage) return;
-    
+    if (state.group) return deleteGroupPhoto();
+
     // Cancel any pending deletion
     if (state.deleteTimeout) {
         clearTimeout(state.deleteTimeout);
@@ -378,6 +387,44 @@ async function deleteImage() {
     }, 5000); // 5 second delay
 }
 
+/**
+ * Side by side: delete the selected photo (or the first one). Same 5-second
+ * undo as a single photo; then the server moves on to the next slide.
+ */
+function deleteGroupPhoto() {
+    if (state.deleteTimeout) {
+        clearTimeout(state.deleteTimeout);
+        state.deleteTimeout = null;
+    }
+    const index = state.groupSelected != null ? state.groupSelected : 0;
+    const image = state.group[index];
+    const pane = state.groupStage && state.groupStage.children[index];
+    if (!image || !pane) return;
+    state.pendingDeletion = { imageId: image.id, image, imageElement: pane, inGroup: true };
+    pane.classList.add('deleting');
+    elements.undoBtn.style.display = 'flex';
+    elements.undoBtn.classList.add('visible');
+    showToast(`Deleting photo ${index + 1} of ${state.group.length} · U to undo`);
+    state.deleteTimeout = setTimeout(async () => {
+        elements.undoBtn.style.display = 'none';
+        elements.undoBtn.classList.remove('visible');
+        state.pendingDeletion = null;
+        state.deleteTimeout = null;
+        try {
+            // The server broadcasts the next slide
+            const data = await apiCall(`/image/${image.id}`, { method: 'DELETE' });
+            if (!state.eventSource || state.eventSource.readyState !== EventSource.OPEN) {
+                if (data.nextImage) displayImage(data.nextImage, []);
+                else showNoImages();
+            }
+        } catch (error) {
+            console.error('Failed to delete image:', error);
+            showToast('Delete failed');
+            pane.classList.remove('deleting');
+        }
+    }, 5000);
+}
+
 function undoDelete() {
     if (!state.pendingDeletion || !state.deleteTimeout) return;
     
@@ -386,10 +433,17 @@ function undoDelete() {
     state.deleteTimeout = null;
     
     // Restore the image
-    const { imageElement, image } = state.pendingDeletion;
+    const { imageElement, image, inGroup } = state.pendingDeletion;
     
     // Remove deletion animation class
     imageElement.classList.remove('deleting');
+    if (inGroup) {
+        state.pendingDeletion = null;
+        elements.undoBtn.style.display = 'none';
+        elements.undoBtn.classList.remove('visible');
+        showToast('Delete cancelled');
+        return;
+    }
     
     // Restore current image state
     state.currentImage = image;
@@ -410,11 +464,12 @@ function undoDelete() {
 }
 
 function downloadImage() {
-    if (!state.currentImage) return;
-    
+    const target = targetImage();
+    if (!target) return;
+
     try {
         // Create a temporary anchor element to trigger download
-        const downloadUrl = `/api/image/${state.currentImage.id}/download`; // not using imageServeUrl — different endpoint
+        const downloadUrl = `/api/image/${target.id}/download`; // not using imageServeUrl — different endpoint
         const link = document.createElement('a');
         link.href = downloadUrl;
         link.download = ''; // Let the server set the filename
@@ -501,6 +556,7 @@ async function saveSettings() {
         interval: parseInt(elements.intervalSelect.value),
         overlayFontSize: parseInt(elements.overlayFontSizeRange.value),
         fillLandscape: elements.fillLandscapeCheck.checked,
+        sideBySide: elements.sideBySideCheck.checked,
         fillMaxCrop: parseInt(elements.fillMaxCropRange.value),
         favoritesOnly: elements.favoritesOnlyCheck.checked,
         nonFavoritesOnly: elements.nonFavoritesOnlyCheck.checked,
@@ -522,7 +578,7 @@ async function saveSettings() {
         }
 
         state.overlayFontSizeEditing = false;
-        state.fillEditing = false;
+        state.layoutEditing = false;
         updateSettings(data.settings);
         closeSettings();
 
@@ -620,9 +676,9 @@ async function loadFaceStatus() {
  * show, cancel it. Only called from displayImage — extracted because the
  * bookkeeping was visually noisy inline.
  */
-function cancelPendingDeletionForOtherImage(newImageId) {
+function cancelPendingDeletionForOtherImage(newImageIds) {
     if (!state.deleteTimeout || !state.pendingDeletion) return;
-    if (state.pendingDeletion.imageId === newImageId) return;
+    if ([].concat(newImageIds).includes(state.pendingDeletion.imageId)) return;
 
     clearTimeout(state.deleteTimeout);
     state.deleteTimeout = null;
@@ -725,13 +781,21 @@ function displayWithCrossfade(image, imageUrl) {
     };
 }
 
-function displayImage(image, preloadList = []) {
+function displayImage(image, preloadList = [], group = null) {
     if (!image) {
         showNoImages();
         return;
     }
 
+    if (group && group.length > 1) {
+        cancelPendingDeletionForOtherImage(group.map(g => g.id));
+        displayGroup(group, preloadList);
+        return;
+    }
+
     cancelPendingDeletionForOtherImage(image.id);
+    // Back to a single photo: drop any side-by-side group
+    leaveGroup();
     state.currentImage = image;
 
     const imageUrl = imageServeUrl(image.id);
@@ -814,6 +878,7 @@ function autoSkipMissing() {
 
 function showNoImages() {
     skipMissingCount = 0;
+    leaveGroup();
     elements.mainImage.style.display = 'none';
     elements.mainImage.classList.remove('current', 'next');
     elements.mainImage.style.zIndex = '';
@@ -829,6 +894,224 @@ function showNoImages() {
     elements.mattingBackground.style.opacity = '0';
     elements.mattingBackground.style.backgroundColor = '';
     elements.mattingBackground.style.backgroundImage = '';
+}
+
+// ---- Side by side ------------------------------------------------------
+
+/** The photo actions (F, D, rotate, info, download) apply to. */
+function targetImage() {
+    if (state.group && state.groupSelected != null && state.group[state.groupSelected]) {
+        return state.group[state.groupSelected];
+    }
+    return state.currentImage;
+}
+
+let groupToken = 0;
+
+/**
+ * Show 2 or 3 photos side by side (chosen by the server). Each gets a pane
+ * sized to its shape; all are cropped by the same small amount to fill the
+ * screen (keeping faces in view), or shown whole if that would cut more
+ * than the "Crop at most" setting. Each pane has its own date · location.
+ */
+function displayGroup(group, preloadList = []) {
+    // The same photos again (e.g. a settings broadcast): just refresh the data
+    if (state.group && state.groupStage && state.group.length === group.length
+        && state.group.every((g, i) => g.id === group[i].id)) {
+        groupToken++;   // a different group still loading (e.g. went back) must not appear
+        group.forEach((g, i) => { state.group[i] = g; });
+        state.currentImage = group[0];
+        renderGroupLabels(state.groupStage);
+        updateFavoriteButton();
+        preloadImages(preloadList);
+        return;
+    }
+
+    const token = ++groupToken;
+    const stage = document.createElement('div');
+    stage.className = 'group-stage';
+    const loads = group.map((image, index) => {
+        const pane = document.createElement('div');
+        pane.className = 'group-pane';
+        const img = document.createElement('img');
+        img.alt = image.filename || '';
+        img.pfImage = image;
+        const label = document.createElement('div');
+        label.className = 'group-label';
+        pane.append(img, label);
+        pane.addEventListener('click', (e) => {
+            e.stopPropagation();
+            selectGroupPhoto(index);
+            showControls();
+        });
+        stage.appendChild(pane);
+        return new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = imageServeUrl(image.id);
+        });
+    });
+
+    Promise.all(loads).then(() => {
+        if (token !== groupToken) return;   // a newer slide arrived meanwhile
+        skipMissingCount = 0;
+        const previous = state.groupStage;
+        state.group = group;
+        state.groupStage = stage;
+        state.groupSelected = null;
+        state.currentImage = group[0];
+        elements.imageContainer.appendChild(stage);
+        layoutGroup(stage);
+        requestAnimationFrame(() => stage.classList.add('visible'));
+        if (previous) fadeOutStage(previous);
+        hideSingleImages();
+        clearLocationOverlay();
+        updateFavoriteButton();
+        updateInfoOverlay(group[0]);
+        elements.loadingIndicator.style.display = 'none';
+        elements.noImagesMessage.style.display = 'none';
+        queueMattingBackground(stage.querySelector('img'));
+    }).catch(() => {
+        if (token !== groupToken) return;
+        console.error('A side-by-side photo failed to load (missing file?), skipping');
+        autoSkipMissing();
+    });
+
+    preloadImages(preloadList);
+}
+
+/** Size the panes and crop each photo (also on resize / settings change). */
+function layoutGroup(stage) {
+    if (!stage) return;
+    const panes = [...stage.children];
+    const imgs = panes.map(p => p.querySelector('img'));
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const gap = Math.max(4, Math.round(W * 0.003));
+    const available = W - gap * (panes.length - 1);
+    const aspects = imgs.map(img => (img.naturalWidth || 1) / (img.naturalHeight || 1));
+    const sum = aspects.reduce((a, b) => a + b, 0);
+    const screen = available / H;
+    const cropPct = (1 - Math.min(sum, screen) / Math.max(sum, screen)) * 100;
+    const maxCrop = (state.settings && state.settings.fillMaxCrop) || 16;
+    // Fill the screen if that cuts no more than "Crop at most"; else whole photos
+    const fill = cropPct <= maxCrop + 1e-6;
+    const height = fill ? H : Math.min(H, available / sum);
+    stage.style.gap = `${gap}px`;
+    panes.forEach((pane, i) => {
+        const width = fill ? available * aspects[i] / sum : height * aspects[i];
+        pane.style.width = `${width}px`;
+        pane.style.height = `${height}px`;
+        const img = imgs[i];
+        const pos = window.PictureFrameFill.position({
+            imgW: img.naturalWidth, imgH: img.naturalHeight, boxW: width, boxH: height,
+            faces: img.pfImage && img.pfImage.faces, force: true
+        });
+        img.style.objectPosition = `${pos.x.toFixed(1)}% ${pos.y.toFixed(1)}%`;
+    });
+    stage.dataset.fill = fill ? 'cover' : 'whole';
+    renderGroupLabels(stage);
+}
+
+// Labels shrink together to fit, but no further than this share of their
+// group size; a name still too long then wraps onto a second line.
+const GROUP_LABEL_MIN_SCALE = 0.6;
+
+/**
+ * Each photo's date · location, all the same size: the normal size scaled
+ * down for 2 or 3 photos, and smaller still (to GROUP_LABEL_MIN_SCALE) if
+ * the longest one wouldn't fit on one line.
+ */
+function renderGroupLabels(stage) {
+    if (!stage || !state.group) return;
+    const panes = [...stage.children];
+    const base = ((state.settings && state.settings.overlayFontSize) || 85) * (panes.length >= 3 ? 0.55 : 0.7);
+    panes.forEach((pane, i) => {
+        const image = state.group[i] || pane.querySelector('img').pfImage;
+        const label = pane.querySelector('.group-label');
+        label.textContent = '';
+        const text = document.createElement('span');
+        text.textContent = overlayTextFor(image);
+        label.appendChild(text);
+        if (image.isFavorite) {
+            const heart = document.createElement('span');
+            heart.className = 'favorite-hint';
+            heart.textContent = '\u2665\uFE0E';
+            label.appendChild(heart);
+        }
+        label.classList.toggle('hidden', !text.textContent && !image.isFavorite);
+        label.style.fontSize = `${base}px`;
+        label.style.whiteSpace = 'nowrap';   // measure on one line
+    });
+    // Shrink everything together until the widest label fits its photo
+    let scale = 1;
+    panes.forEach(pane => {
+        const label = pane.querySelector('.group-label');
+        // A little under the label's 92% max-width: text width doesn't scale
+        // exactly with font size, and a label that just fits mustn't wrap
+        const room = pane.clientWidth * 0.88;
+        if (label.scrollWidth > room && label.scrollWidth > 0) scale = Math.min(scale, room / label.scrollWidth);
+    });
+    const size = Math.max(12, Math.floor(base * Math.max(scale, GROUP_LABEL_MIN_SCALE)));
+    panes.forEach(pane => {
+        const label = pane.querySelector('.group-label');
+        label.style.fontSize = `${size}px`;
+        label.style.whiteSpace = '';         // wraps if still too long
+    });
+    stage.dataset.labelSize = String(size);
+}
+
+/** 1/2/3 or a tap: pick which photo F, D, rotate, info and download act on. */
+function selectGroupPhoto(index) {
+    if (!state.group || !state.groupStage || index >= state.group.length) return;
+    state.groupSelected = state.groupSelected === index ? null : index;
+    [...state.groupStage.children].forEach((pane, i) => pane.classList.toggle('selected', i === state.groupSelected));
+    const target = targetImage();
+    updateInfoOverlay(target);
+    showToast(state.groupSelected == null
+        ? 'No photo selected'
+        : `Photo ${index + 1} of ${state.group.length} selected`);
+}
+
+/** A photo on screen was rotated: reload it and lay the group out again. */
+function reloadGroupPhoto(imageId, cacheBuster) {
+    if (!state.group || !state.groupStage) return;
+    const index = state.group.findIndex(g => g.id === imageId);
+    if (index === -1) return;
+    const stage = state.groupStage;
+    const img = stage.children[index].querySelector('img');
+    state.group[index].faces = null;   // found again server-side for the new orientation
+    img.onload = () => layoutGroup(stage);
+    img.src = imageServeUrl(imageId, { cacheBuster });
+}
+
+function fadeOutStage(stage) {
+    stage.classList.remove('visible');
+    setTimeout(() => stage.remove(), 700);
+}
+
+/** Leave side by side (a single photo or nothing comes next). */
+function leaveGroup() {
+    groupToken++;   // a group still loading must not appear afterwards
+    if (state.groupStage) fadeOutStage(state.groupStage);
+    state.group = null;
+    state.groupStage = null;
+    state.groupSelected = null;
+}
+
+/** The single-photo <img>s fade away under a group; the next single photo starts fresh. */
+function hideSingleImages() {
+    for (const el of [elements.mainImage, elements.nextImage]) {
+        // A single photo still loading is out of date now: it mustn't show
+        // over the group (or skip ahead if it fails)
+        el.onload = null;
+        el.onerror = null;
+        el.classList.remove('current', 'next');
+        el.style.opacity = '0';
+        setTimeout(() => {
+            if (!el.classList.contains('current') && !el.classList.contains('next')) el.style.display = 'none';
+        }, 700);
+    }
 }
 
 function updateInfoOverlay(image) {
@@ -929,6 +1212,14 @@ function favoritesFilter(settings) {
 }
 
 function updateLocationOverlay(image) {
+    const displayText = overlayTextFor(image);
+    state.overlayImageId = image.id;
+    state.overlayText = displayText;
+    renderLocationOverlay(displayText, !!image.isFavorite);
+}
+
+/** "May 1, 2024 · Paris, France" for a photo ('' if it has neither). */
+function overlayTextFor(image) {
     let displayText = '';
     
     // Add date taken if available
@@ -958,10 +1249,7 @@ function updateLocationOverlay(image) {
     } else if (locationText) {
         displayText = locationText;
     }
-    
-    state.overlayImageId = image.id;
-    state.overlayText = displayText;
-    renderLocationOverlay(displayText, !!image.isFavorite);
+    return displayText;
 }
 
 // Heart only: used when the current photo is (un)favorited.
@@ -1001,6 +1289,22 @@ function setCurrentFavorite(isFavorite) {
     if (changed) showToast(isFavorite ? '♥ Added to favorites' : '♡ Removed from favorites');
 }
 
+/** A photo's favorite flag changed: update whichever photo on screen it is. */
+function setImageFavorite(imageId, isFavorite) {
+    if (state.group) {
+        const index = state.group.findIndex(g => g.id === imageId);
+        if (index === -1) return;
+        const image = state.group[index];
+        const changed = image.isFavorite !== isFavorite;
+        image.isFavorite = isFavorite;
+        if (index === 0) updateFavoriteButton();
+        renderGroupLabels(state.groupStage);
+        if (changed) showToast(isFavorite ? '♥ Added to favorites' : '♡ Removed from favorites');
+        return;
+    }
+    if (state.currentImage && state.currentImage.id === imageId) setCurrentFavorite(isFavorite);
+}
+
 function showToast(message) {
     elements.toast.textContent = message;
     elements.toast.classList.add('visible');
@@ -1020,7 +1324,18 @@ function updateFavoriteButton() {
 
 async function rotateImage(direction) {
     if (!state.currentImage) return;
-    
+    if (state.group) {
+        // Side by side: rotate the selected photo; the rotate broadcast reloads it
+        const target = targetImage();
+        try {
+            await apiCall(`/image/${target.id}/${direction === 'left' ? 'rotate-left' : 'rotate-right'}`, { method: 'POST' });
+            reloadGroupPhoto(target.id, newCacheBuster());
+        } catch (error) {
+            console.error('Failed to rotate image:', error);
+        }
+        return;
+    }
+
     try {
         const endpoint = direction === 'left' ? 'rotate-left' : 'rotate-right';
         const response = await apiCall(`/image/${state.currentImage.id}/${endpoint}`, {
@@ -1101,13 +1416,31 @@ function refreshFill() {
     for (const imgEl of [elements.mainImage, elements.nextImage]) {
         if (imgEl.pfImage && imgEl.complete) applyFill(imgEl, imgEl.pfImage);
     }
+    if (state.groupStage) layoutGroup(state.groupStage);
 }
 
-function updateFillControls(settings) {
+function updateLayoutControls(settings) {
     elements.fillLandscapeCheck.checked = !!settings.fillLandscape;
+    elements.sideBySideCheck.checked = !!settings.sideBySide;
     if (settings.fillMaxCrop) {
         elements.fillMaxCropRange.value = settings.fillMaxCrop;
         elements.fillMaxCropValue.textContent = `${settings.fillMaxCrop}%`;
+    }
+}
+
+async function toggleSideBySide() {
+    if (!state.settings) return;
+    try {
+        // The toast comes from updateSettings, like a change from the remote
+        const data = await apiCall('/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sideBySide: !state.settings.sideBySide })
+        });
+        updateSettings(data.settings);
+    } catch (error) {
+        console.error('Failed to toggle side by side:', error);
+        showToast('Side by side failed');
     }
 }
 
@@ -1138,6 +1471,13 @@ function updateSettings(settings) {
             ? `Fill screen on · crops up to ${settings.fillMaxCrop}%`
             : 'Fill screen off');
     }
+    const sideBySideChanged = state.settings && !!state.settings.sideBySide !== !!settings.sideBySide;
+    if (sideBySideChanged) {
+        showToast(settings.sideBySide ? 'Side by side on · portraits 2 or 3 to a screen' : 'Side by side off');
+    }
+    // Text size or crop limit changed: labels/panes of a group on screen follow
+    const groupLayoutChanged = state.settings && state.groupStage
+        && (state.settings.overlayFontSize !== settings.overlayFontSize || state.settings.fillMaxCrop !== settings.fillMaxCrop);
 
     // Skip the initial load; after that, announce filter changes from any source (shortcut, panel, remote)
     const filterChanged = state.settings && favoritesFilter(state.settings) !== favoritesFilter(settings);
@@ -1174,8 +1514,9 @@ function updateSettings(settings) {
         elements.filterSqlTextarea.value = settings.filterSql || '';
     }
     // Settings arrive with every photo: don't undo an unsaved edit
-    if (!state.fillEditing) updateFillControls(settings);
+    if (!state.layoutEditing) updateLayoutControls(settings);
     if (fillChanged) refreshFill();
+    if (groupLayoutChanged) layoutGroup(state.groupStage);
 }
 
 function updateClock() {
@@ -1701,8 +2042,8 @@ function closeSettings() {
         elements.overlayFontSizeRange.value = state.settings.overlayFontSize;
         applyOverlayFontSize(state.settings.overlayFontSize);
     }
-    state.fillEditing = false;
-    if (state.settings) updateFillControls(state.settings);   // drop unsaved changes
+    state.layoutEditing = false;
+    if (state.settings) updateLayoutControls(state.settings);   // drop unsaved changes
     if (window.PictureFrameTvRemote) window.PictureFrameTvRemote.hide();
 }
 
@@ -1780,10 +2121,11 @@ function setupEventListeners() {
 
     // Fill screen crop limit: show the value while dragging (Save applies it)
     elements.fillMaxCropRange.addEventListener('input', () => {
-        state.fillEditing = true;
+        state.layoutEditing = true;
         elements.fillMaxCropValue.textContent = `${elements.fillMaxCropRange.value}%`;
     });
-    elements.fillLandscapeCheck.addEventListener('change', () => { state.fillEditing = true; });
+    elements.fillLandscapeCheck.addEventListener('change', () => { state.layoutEditing = true; });
+    elements.sideBySideCheck.addEventListener('change', () => { state.layoutEditing = true; });
 
     // The screen's shape decides how much a photo is cropped
     let fillResizeTimer = null;
@@ -1860,6 +2202,23 @@ function setupEventListeners() {
                     toggleFavorite();
                 }
                 showControls();
+                break;
+            case '1':
+            case '2':
+            case '3':
+                // Side by side: pick the photo actions apply to
+                if (state.group && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                    selectGroupPhoto(parseInt(e.key) - 1);
+                    showControls();
+                }
+                break;
+            case 'g':
+            case 'G':
+                if (e.ctrlKey || e.metaKey) {
+                    // Ctrl+G or Cmd+G toggles side by side for portrait photos
+                    e.preventDefault();
+                    toggleSideBySide();
+                }
                 break;
             case 'c':
             case 'C':

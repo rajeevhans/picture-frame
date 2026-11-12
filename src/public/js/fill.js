@@ -28,21 +28,44 @@
     /**
      * Where along one axis to place the visible window of size `visible`
      * (fraction of the photo), keeping every face span [start, end] in it.
+     * @param {boolean} [force] - if the faces can't all fit, center on them anyway
      * @returns {number|null} percent for CSS object-position, or null if the faces can't all fit
      */
-    function place(spans, visible, noFacePos) {
+    function place(spans, visible, noFacePos, force) {
         const crop = 1 - visible;
         if (crop <= 1e-6) return 50;
         if (!spans.length) return noFacePos * 100;
         const rawStart = Math.min(...spans.map(s => s.start));
         const rawEnd = Math.max(...spans.map(s => s.end));
-        if (rawEnd - rawStart > visible + 1e-9) return null;
+        const fits = rawEnd - rawStart <= visible + 1e-9;
+        if (!fits && !force) return null;
         const padStart = Math.max(0, Math.min(...spans.map(s => s.padStart)));
         const padEnd = Math.min(1, Math.max(...spans.map(s => s.padEnd)));
         // Center on the faces with their padding, but never cut a face itself
         const want = (padStart + padEnd) / 2 - visible / 2;
-        const offset = clamp(clamp(want, rawEnd - visible, rawStart), 0, crop);
+        const offset = clamp(fits ? clamp(want, rawEnd - visible, rawStart) : want, 0, crop);
         return (offset / crop) * 100;
+    }
+
+    /**
+     * Where to crop a photo of any shape so it fills a box (object-fit: cover).
+     * @param {object} p - imgW, imgH, boxW, boxH, faces (see compute), force (see place)
+     * @returns {{fill: boolean, reason: string, crop: number, x?: number, y?: number}}
+     */
+    function position({ imgW, imgH, boxW, boxH, faces, force }) {
+        const imgAR = imgW / imgH;
+        const boxAR = boxW / boxH;
+        const tall = imgAR <= boxAR;              // narrower than the box: crop top/bottom
+        const visible = tall ? imgAR / boxAR : boxAR / imgAR;
+        const crop = 1 - visible;
+        const main = mainFaces(faces);
+        const spans = main.map(b => tall
+            ? { start: b.y, end: b.y + b.h, padStart: b.y - PAD_ABOVE * b.h, padEnd: b.y + b.h + PAD_BELOW * b.h }
+            : { start: b.x, end: b.x + b.w, padStart: b.x - PAD_SIDE * b.w, padEnd: b.x + b.w + PAD_SIDE * b.w });
+        const pos = place(spans, visible, tall ? NO_FACE_POS : 0.5, force);
+        if (pos === null) return { fill: false, reason: 'faces do not fit', crop };
+        const reason = main.length ? 'faces' : 'no faces';
+        return tall ? { fill: true, reason, crop, x: 50, y: pos } : { fill: true, reason, crop, x: pos, y: 50 };
     }
 
     /**
@@ -59,22 +82,12 @@
         if (imgW <= imgH) return { fill: false, reason: 'not landscape' };
         const imgAR = imgW / imgH;
         const screenAR = screenW / screenH;
-        const tall = imgAR <= screenAR;           // narrower than the screen: crop top/bottom
-        const visible = tall ? imgAR / screenAR : screenAR / imgAR;
-        const crop = 1 - visible;
+        const crop = 1 - Math.min(imgAR, screenAR) / Math.max(imgAR, screenAR);
         if (crop * 100 > maxCrop + 1e-6) return { fill: false, reason: 'too much crop', crop };
-
-        const main = mainFaces(faces);
-        const spans = main.map(b => tall
-            ? { start: b.y, end: b.y + b.h, padStart: b.y - PAD_ABOVE * b.h, padEnd: b.y + b.h + PAD_BELOW * b.h }
-            : { start: b.x, end: b.x + b.w, padStart: b.x - PAD_SIDE * b.w, padEnd: b.x + b.w + PAD_SIDE * b.w });
-        const pos = place(spans, visible, tall ? NO_FACE_POS : 0.5);
-        if (pos === null) return { fill: false, reason: 'faces do not fit', crop };
-        const reason = main.length ? 'faces' : 'no faces';
-        return tall ? { fill: true, reason, crop, x: 50, y: pos } : { fill: true, reason, crop, x: pos, y: 50 };
+        return position({ imgW, imgH, boxW: screenW, boxH: screenH, faces, force: false });
     }
 
-    const api = { compute, mainFaces };
+    const api = { compute, position, mainFaces };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.PictureFrameFill = api;
 })(typeof window !== 'undefined' ? window : this);

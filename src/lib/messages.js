@@ -7,7 +7,8 @@
  *
  * Message types (consumed by src/public/js/app.js and
  * src/public/remote/remote.js):
- *   image          - current image changed (also includes preload + settings)
+ *   image          - current image changed (also includes preload + settings,
+ *                    and `group` when photos are shown side by side)
  *   favorite       - favorite toggle for a specific image
  *   settings       - slideshow settings changed (no image change)
  *   slideshowState - play/pause state changed
@@ -16,8 +17,15 @@
  *   importReady    - new photos of an event import finished arriving; it is now shown
  */
 
-function imageMessage({ image, preload, settings, isPlaying }) {
+/**
+ * @param {object} p
+ * @param {object[]|null} [p.group] - side by side: every photo on screen,
+ *   `image` first. Absent for a single photo; `image` is always the first
+ *   photo, so clients that don't know about groups keep working.
+ */
+function imageMessage({ image, group, preload, settings, isPlaying }) {
     const msg = { type: 'image', image, preload, settings };
+    if (group && group.length > 1) msg.group = group;
     if (typeof isPlaying === 'boolean') msg.isPlaying = isPlaying;
     return msg;
 }

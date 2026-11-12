@@ -10,6 +10,16 @@ const OVERLAY_FONT_SIZE = Object.freeze({ min: 24, max: 240, default: 85 });
 // Fill screen: the most (percent of the photo) a landscape photo may be
 // cropped to fill the screen. 16 fills 3:2 photos on a 16:9 screen.
 const FILL_MAX_CROP = Object.freeze({ min: 5, max: 50, default: 16 });
+// Side by side: portrait and square photos are shown 2 or 3 to a screen,
+// whichever needs the least cropping on this screen shape (the frame's TV;
+// each display lays the group out for its own screen).
+const SIDE_BY_SIDE_SCREEN = 16 / 9;
+// How far ahead (in slideshow order) to look for "next" companions.
+const GROUP_LOOKAHEAD = 300;
+const GROUP_CACHE_SIZE = 200;
+// Random/smart mode has no pass to end: remember only this many recent
+// companions (else every portrait would eventually be avoided).
+const GROUP_RECENT_MAX = 500;
 
 /**
  * Error type thrown by SlideshowEngine.updateSettings when input fails
@@ -56,6 +66,8 @@ class SlideshowEngine {
             // at most fillMaxCrop percent (the display does the cropping).
             fillLandscape: false,
             fillMaxCrop: FILL_MAX_CROP.default,
+            // Show portraits/squares 2 or 3 side by side (see _buildGroup)
+            sideBySide: false,
             // Event import shown on its own ('' = off). While set, the
             // favorites/non-favorites/SQL filters and 'this day' are ignored
             // (but kept, so clearing it restores them).
@@ -82,6 +94,13 @@ class SlideshowEngine {
         // other case a full reload is used, which is always exact.
         this.lastFavoriteDrop = null;
         this.listMutations = 0;
+        // Side by side: the companions chosen for each first photo (so going
+        // back shows the same group), and companions already shown in this
+        // pass (so "next" doesn't show them again on their own).
+        this.groupCache = new Map();
+        this.groupUsed = new Set();
+        this.dayIndex = null;
+        this.dayIndexKey = null;
         // Number of images to preload (from config, default 15)
         this.preloadCount = (config.slideshow && config.slideshow.numberOfImagesToPreload) || 15;
 
@@ -108,6 +127,7 @@ class SlideshowEngine {
         this.db.seedSetting('overlay_font_size', OVERLAY_FONT_SIZE.default);
         this.db.seedSetting('fill_landscape', '0');
         this.db.seedSetting('fill_max_crop', FILL_MAX_CROP.default);
+        this.db.seedSetting('side_by_side', '0');
         this.db.seedSetting('current_image_id', '0');
 
         // Load settings from database
@@ -151,6 +171,9 @@ class SlideshowEngine {
         if (savedSettings.fill_max_crop) {
             const pct = parseInt(savedSettings.fill_max_crop);
             if (pct >= FILL_MAX_CROP.min && pct <= FILL_MAX_CROP.max) this.settings.fillMaxCrop = pct;
+        }
+        if (savedSettings.side_by_side) {
+            this.settings.sideBySide = savedSettings.side_by_side === '1';
         }
         if (savedSettings.current_image_id) {
             this.currentImageId = parseInt(savedSettings.current_image_id);
@@ -375,6 +398,7 @@ class SlideshowEngine {
             this.db.setSetting('slideshow_mode', 'sequential');
         }
         this._setShuffle(true, newShuffleSeed(this.settings.shuffleSeed));
+        this._resetGroups();
         this.refreshImageList();
         this.smartWeights = null;
         if (this.imageList.length === 0) return null;
@@ -469,17 +493,25 @@ class SlideshowEngine {
             // If invalid, fall through to normal selection
         }
 
-        if (this.settings.mode === 'random') {
-            // True random
-            this.currentIndex = Math.floor(Math.random() * this.imageList.length);
-        } else if (this.settings.mode === 'smart') {
-            // Weighted random
-            this.currentIndex = this.selectSmartImage();
+        const used = id => this.settings.sideBySide && this.groupUsed.has(id);
+        if (this.settings.mode === 'random' || this.settings.mode === 'smart') {
+            // (Weighted) random; try a few times to avoid a photo just shown
+            // as a side-by-side companion
+            for (let tries = 0; tries < 20; tries++) {
+                this.currentIndex = this.settings.mode === 'random'
+                    ? Math.floor(Math.random() * this.imageList.length)
+                    : this.selectSmartImage();
+                if (!used(this.imageList[this.currentIndex].id)) break;
+            }
         } else {
-            // Sequential
-            this.currentIndex++;
-            if (this.currentIndex >= this.imageList.length) {
-                this.currentIndex = 0;
+            // Sequential, skipping photos already shown as a companion
+            for (let steps = 0; steps < this.imageList.length; steps++) {
+                this.currentIndex++;
+                if (this.currentIndex >= this.imageList.length) {
+                    this.currentIndex = 0;
+                    this.groupUsed.clear();   // a new pass through the list
+                }
+                if (!used(this.imageList[this.currentIndex].id)) break;
             }
         }
 
@@ -512,9 +544,13 @@ class SlideshowEngine {
         // Fallback to simple previous
         if (this.settings.mode === 'sequential') {
             if (currentId) this.pushForward(currentId);
-            this.currentIndex--;
-            if (this.currentIndex < 0) {
-                this.currentIndex = this.imageList.length - 1;
+            // Skip photos already shown as a side-by-side companion
+            for (let steps = 0; steps < this.imageList.length; steps++) {
+                this.currentIndex--;
+                if (this.currentIndex < 0) {
+                    this.currentIndex = this.imageList.length - 1;
+                }
+                if (!(this.settings.sideBySide && this.groupUsed.has(this.imageList[this.currentIndex].id))) break;
             }
         } else {
             // For random modes, just go to a random previous image
@@ -522,6 +558,159 @@ class SlideshowEngine {
         }
 
         return this.getCurrentImage();
+    }
+
+    // ---- Side by side -------------------------------------------------
+
+    _aspect(row) {
+        return row && row.width > 0 && row.height > 0 ? row.width / row.height : null;
+    }
+
+    /** Portrait or square photos go side by side. */
+    _groupable(row) {
+        const a = this._aspect(row);
+        return a !== null && a <= 1.001;
+    }
+
+    _dayKey(row) {
+        if (!row || !row.date_taken) return null;
+        const d = new Date(row.date_taken);
+        return isNaN(d) ? null : `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    }
+
+    /** day -> list indexes of groupable photos, rebuilt when the list changes. */
+    _getDayIndex() {
+        const key = `${this.listVersion}:${this.listMutations}:${this.imageList.length}`;
+        if (this.dayIndex && this.dayIndexKey === key) return this.dayIndex;
+        const index = new Map();
+        this.imageList.forEach((row, i) => {
+            if (!this._groupable(row)) return;
+            const day = this._dayKey(row);
+            if (!day) return;
+            if (!index.has(day)) index.set(day, []);
+            index.get(day).push(i);
+        });
+        this.dayIndex = index;
+        this.dayIndexKey = key;
+        return index;
+    }
+
+    /** Crop needed for photos side by side at full height to fill the screen. */
+    static groupCrop(aspects) {
+        const sum = aspects.reduce((a, b) => a + b, 0);
+        return 1 - Math.min(sum, SIDE_BY_SIDE_SCREEN) / Math.max(sum, SIDE_BY_SIDE_SCREEN);
+    }
+
+    /**
+     * The photos to show for the list entry at `index`: just it, or (side by
+     * side on, portrait/square photo) it plus 1 or 2 companions. Companions
+     * are portraits/squares from the same day, nearest ahead in slideshow
+     * order, else the next ones in order (random in random/smart mode).
+     * 2 or 3 photos: whichever needs less cropping to fill a 16:9 screen.
+     * @returns {object[]} DB rows, first photo first
+     */
+    _buildGroup(index) {
+        const primary = this.imageList[index];
+        if (!this.settings.sideBySide || !this._groupable(primary)) return [primary];
+
+        const cached = this.groupCache.get(primary.id);
+        if (cached) {
+            const rows = cached.map(id => this.imageList.find(r => r.id === id)).filter(Boolean);
+            if (rows.length === cached.length) return [primary, ...rows];
+        }
+
+        const len = this.imageList.length;
+        // In order (sequential, artistic), companions come from ahead in this
+        // pass (earlier photos were already on screen); in random/smart mode
+        // from anywhere. Matches how getNextImage() moves.
+        const inOrder = !this._isRandomMode();
+        const taken = new Set([primary.id]);
+        const picks = [];
+        const tryPick = row => {
+            if (picks.length < 2 && row && !taken.has(row.id) && !this.groupUsed.has(row.id) && this._groupable(row)) {
+                picks.push(row);
+                taken.add(row.id);
+            }
+        };
+        // Same day first, nearest ahead in the order
+        const day = this._dayKey(primary);
+        if (day) {
+            const sameDay = (this._getDayIndex().get(day) || [])
+                .map(i => ({ i, ahead: inOrder ? i - index : (i - index + len) % len }))
+                .filter(x => x.ahead > 0)
+                .sort((a, b) => a.ahead - b.ahead);
+            for (const { i } of sameDay) {
+                if (picks.length >= 2) break;
+                tryPick(this.imageList[i]);
+            }
+        }
+        // Else the next ones
+        if (picks.length < 2) {
+            if (inOrder) {
+                for (let k = 1; k <= GROUP_LOOKAHEAD && index + k < len && picks.length < 2; k++) {
+                    tryPick(this.imageList[index + k]);
+                }
+            } else {
+                for (let tries = 0; tries < 60 && picks.length < 2; tries++) {
+                    tryPick(this.imageList[Math.floor(Math.random() * len)]);
+                }
+            }
+        }
+        if (!picks.length) return [primary];
+
+        let group = [primary, picks[0]];
+        const three = [primary, ...picks];
+        if (picks.length > 1
+            && SlideshowEngine.groupCrop(three.map(r => this._aspect(r))) < SlideshowEngine.groupCrop(group.map(r => this._aspect(r)))) {
+            group = three;
+        }
+        this.groupCache.set(primary.id, group.slice(1).map(r => r.id));
+        if (this.groupCache.size > GROUP_CACHE_SIZE) {
+            this.groupCache.delete(this.groupCache.keys().next().value);
+        }
+        return group;
+    }
+
+    /**
+     * The photos on screen with the current one, when side by side applies.
+     * Marks the companions as shown, so "next" skips them.
+     * @returns {object[]|null} formatted images, first photo first, or null for a single photo
+     */
+    getCurrentGroup() {
+        if (!this.settings.sideBySide || this.imageList.length === 0) return null;
+        if (this.currentIndex < 0 || this.currentIndex >= this.imageList.length) this.currentIndex = 0;
+        const group = this._buildGroup(this.currentIndex);
+        if (group.length < 2) return null;
+        group.slice(1).forEach(row => {
+            this.groupUsed.delete(row.id);   // re-add as most recent
+            this.groupUsed.add(row.id);
+        });
+        if (this._isRandomMode()) {
+            // Sets iterate oldest first: forget the oldest beyond the window
+            for (const id of this.groupUsed) {
+                if (this.groupUsed.size <= GROUP_RECENT_MAX) break;
+                this.groupUsed.delete(id);
+            }
+        }
+        return group.map(row => this.formatImage(row));
+    }
+
+    _isRandomMode() {
+        return this.settings.mode === 'random' || this.settings.mode === 'smart';
+    }
+
+    /** A photo was physically rotated: its width and height swapped. */
+    noteRotated(imageId) {
+        const row = this.imageList.find(r => r.id === imageId);
+        if (row) [row.width, row.height] = [row.height, row.width];
+        this.groupCache.clear();
+        this.dayIndex = null;
+    }
+
+    _resetGroups() {
+        this.groupCache.clear();
+        this.groupUsed.clear();
+        this.dayIndex = null;
     }
 
     selectSmartImage() {
@@ -617,6 +806,7 @@ class SlideshowEngine {
             overlayFontSize: this.settings.overlayFontSize,
             fillLandscape: this.settings.fillLandscape,
             fillMaxCrop: this.settings.fillMaxCrop,
+            sideBySide: this.settings.sideBySide,
             importFilter: this.settings.importFilter || '',
             importName: this._importName(),
             totalImages: this.imageList.length
@@ -698,6 +888,10 @@ class SlideshowEngine {
 
         if (input.fillLandscape !== undefined) {
             normalized.fillLandscape = input.fillLandscape === true || input.fillLandscape === 'true';
+        }
+
+        if (input.sideBySide !== undefined) {
+            normalized.sideBySide = input.sideBySide === true || input.sideBySide === 'true';
         }
 
         if (input.fillMaxCrop !== undefined) {
@@ -789,6 +983,12 @@ class SlideshowEngine {
             this.db.setSetting('fill_max_crop', updates.fillMaxCrop);
         }
 
+        if (updates.sideBySide !== undefined && updates.sideBySide !== this.settings.sideBySide) {
+            this.settings.sideBySide = updates.sideBySide;
+            this.db.setSetting('side_by_side', updates.sideBySide ? '1' : '0');
+            this._resetGroups();
+        }
+
         if (updates.interval !== undefined) {
             this.settings.interval = updates.interval;
             this.db.setSetting('slideshow_interval', updates.interval);
@@ -831,6 +1031,7 @@ class SlideshowEngine {
         }
 
         if (needsRefresh) {
+            this._resetGroups();   // a different list: groups start over
             this.refreshImageList();
             // refreshImageList() bumped listVersion, which invalidates the
             // smart-weight cache on the next selectSmartImage() call. Clear
@@ -875,6 +1076,7 @@ class SlideshowEngine {
         if (!image) return;
         this.broadcast(imageMessage({
             image,
+            group: this.getCurrentGroup(),
             preload: this.getPreloadImages(),
             settings: this.getSettings(),
             isPlaying: this.isPlaying

@@ -12,6 +12,7 @@ const els = {
   startBtn: document.getElementById('startBtn'),
   shuffleBtn: document.getElementById('shuffleBtn'),
   fillBtn: document.getElementById('fillBtn'),
+  sideBySideBtn: document.getElementById('sideBySideBtn'),
   favoriteBtn: document.getElementById('favoriteBtn'),
   rotateLeftBtn: document.getElementById('rotateLeftBtn'),
   rotateRightBtn: document.getElementById('rotateRightBtn'),
@@ -60,6 +61,10 @@ function updateFillButton() {
   els.fillBtn.title = on
     ? `Fill screen is on (crops up to ${state.settings.fillMaxCrop}%). Tap to turn off`
     : 'Fill screen with landscape photos';
+  const sbs = !!(state.settings && state.settings.sideBySide);
+  els.sideBySideBtn.classList.toggle('on', sbs);
+  els.sideBySideBtn.setAttribute('aria-pressed', sbs ? 'true' : 'false');
+  els.sideBySideBtn.title = sbs ? 'Side by side is on. Tap to turn off' : 'Show portrait photos side by side';
 }
 
 function updatePlayButtons() {
@@ -84,6 +89,7 @@ function setBusy(busy) {
     els.startBtn,
     els.shuffleBtn,
     els.fillBtn,
+    els.sideBySideBtn,
     els.favoriteBtn,
     els.rotateLeftBtn,
     els.rotateRightBtn,
@@ -223,6 +229,23 @@ async function toggleFill() {
   }
 }
 
+async function toggleSideBySide() {
+  setBusy(true);
+  try {
+    if (!state.settings) state.settings = await apiCall('/settings');
+    const data = await apiCall('/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sideBySide: !state.settings.sideBySide })
+    });
+    state.settings = data.settings;
+    updateFillButton();
+    setStatus(state.settings.sideBySide ? 'Side by side on' : 'Side by side off', 'ok');
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function toggleFavorite() {
   if (!state.currentImage) return;
   setBusy(true);
@@ -264,6 +287,7 @@ function wireUI() {
   els.startBtn.addEventListener('click', start);
   els.shuffleBtn.addEventListener('click', shuffle);
   els.fillBtn.addEventListener('click', toggleFill);
+  els.sideBySideBtn.addEventListener('click', toggleSideBySide);
   els.favoriteBtn.addEventListener('click', toggleFavorite);
   els.rotateLeftBtn.addEventListener('click', () => rotate('left'));
   els.rotateRightBtn.addEventListener('click', () => rotate('right'));

@@ -155,6 +155,7 @@ function createImageRoutes(db, slideshowEngine, ctx) {
 
             res.json({
                 image,
+                group: slideshowEngine.getCurrentGroup(),
                 preload,
                 settings: slideshowEngine.getSettings()
             });
@@ -178,7 +179,7 @@ function createImageRoutes(db, slideshowEngine, ctx) {
                     if (!resolved) return res.status(404).json({ error: 'No images available' });
                     const preload = slideshowEngine.getPreloadImages();
                     const settings = slideshowEngine.getSettings();
-                    return res.json({ image: resolved, preload, settings });
+                    return res.json({ image: resolved, group: slideshowEngine.getCurrentGroup(), preload, settings });
                 }).catch((error) => {
                     console.error('Error getting next image:', error);
                     return res.status(500).json({ error: 'Internal server error' });
@@ -187,6 +188,7 @@ function createImageRoutes(db, slideshowEngine, ctx) {
 
             res.json({
                 image,
+                group: slideshowEngine.getCurrentGroup(),
                 preload: slideshowEngine.getPreloadImages(),
                 settings: slideshowEngine.getSettings()
             });
@@ -209,7 +211,7 @@ function createImageRoutes(db, slideshowEngine, ctx) {
                     if (!resolved) return res.status(404).json({ error: 'No images available' });
                     const preload = slideshowEngine.getPreloadImages();
                     const settings = slideshowEngine.getSettings();
-                    return res.json({ image: resolved, preload, settings });
+                    return res.json({ image: resolved, group: slideshowEngine.getCurrentGroup(), preload, settings });
                 }).catch((error) => {
                     console.error('Error getting previous image:', error);
                     return res.status(500).json({ error: 'Internal server error' });
@@ -218,6 +220,7 @@ function createImageRoutes(db, slideshowEngine, ctx) {
 
             res.json({
                 image,
+                group: slideshowEngine.getCurrentGroup(),
                 preload: slideshowEngine.getPreloadImages(),
                 settings: slideshowEngine.getSettings()
             });
@@ -479,6 +482,9 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             db.resetHashComputed(imageId);
             // Face boxes are relative to the old orientation: find them again.
             db.clearFaces(imageId);
+            // Width and height swapped (side by side groups by shape)
+            db.swapDimensions(imageId);
+            if (slideshowEngine.noteRotated) slideshowEngine.noteRotated(imageId);
             if (ctx && ctx.wakeFaceDetection) ctx.wakeFaceDetection();
 
             console.log(`Rotated image ${imageId} left (counter-clockwise)`);
@@ -527,6 +533,9 @@ function createImageRoutes(db, slideshowEngine, ctx) {
             db.resetHashComputed(imageId);
             // Face boxes are relative to the old orientation: find them again.
             db.clearFaces(imageId);
+            // Width and height swapped (side by side groups by shape)
+            db.swapDimensions(imageId);
+            if (slideshowEngine.noteRotated) slideshowEngine.noteRotated(imageId);
             if (ctx && ctx.wakeFaceDetection) ctx.wakeFaceDetection();
 
             console.log(`Rotated image ${imageId} right (clockwise)`);

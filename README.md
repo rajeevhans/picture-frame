@@ -185,6 +185,7 @@ Both UIs receive real-time updates via SSE. The slideshow timer is server-author
 - **Interval**: 5 seconds to 5 minutes between images
 - **Date & location text size**: Font size of the bottom-left date · location line, 24–240 px (default 85). Previews live while dragging, and is shared with every screen once saved
 - **Fill the screen with landscape photos**: Crops landscape photos to fill the screen, up to a set limit (default 16%), keeping faces in view. See [Fill Screen](#fill-screen). Shortcut: Ctrl/Cmd+C
+- **Show portrait photos side by side**: Portraits and squares 2 or 3 to a screen, each with its own date · location. See [Side by Side](#side-by-side). Shortcut: Ctrl/Cmd+G
 - **Filters**: Show favorites only, show non-favorites only (the two are mutually exclusive), or restrict to a custom SQL filter
 - **System**: Restart server, reset database
 
@@ -381,6 +382,17 @@ Landscape photos that aren't the screen's shape normally show whole, with a colo
 
 Faces are found once per photo by Apple's Vision framework on the frame's Mac (`macos/face-detect.swift`, compiled into `data/bin/` on first start; needs the Xcode command line tools). It runs in the background at low priority, about 30 ms per photo, newest photos first, and new or rotated photos are checked as they arrive. Settings shows the progress. Until a photo has been checked, and always on non-Mac setups, it's treated as having no faces. Nothing leaves the machine.
 
+## Side by Side
+
+Portrait photos leave most of a 16:9 TV empty. **Settings → Slideshow → Show portrait photos side by side** (or **Ctrl/Cmd+G**, the side-by-side button on `/remote`, or Hubitat) shows portrait and square photos 2 or 3 to a screen.
+
+- **Which photos:** portraits and squares from the **same day** first (nearest ahead in the slideshow order), otherwise the **next** ones in order (random ones in Random/Smart mode). Photos shown as a companion aren't shown again on their own in the same pass (in Random/Smart mode, which has no passes: not while they're among the last 500 companions). Landscape photos stay one at a time.
+- **2 or 3:** whichever needs less cropping to fill a 16:9 screen. Two 3:4 phone portraits need about 16%, and three 2:3 camera portraits about 11%.
+- **Cropping:** each photo gets a pane sized to its shape, and all are cropped by the same amount to fill the screen, keeping faces in view (see [Fill Screen](#fill-screen)). If that would cut more than **Crop at most**, the photos are shown whole instead, with the mat around them.
+- **Labels:** each photo has its own date · location in its bottom-left corner. All labels are the same size: 70% of the normal text size with 2 photos, 55% with 3, and smaller still (down to 60% of that) if the longest one wouldn't fit. A name too long even then wraps onto a second line.
+- **Timing:** a screen of 2 or 3 photos stays for one interval, like a single photo.
+- **Acting on one photo:** press **1**, **2** or **3** (or tap a photo) to highlight it. **F**, **D**, rotate, **I** and download then apply to it; with nothing picked they apply to the first (left) photo. The remote and Hubitat act on the first photo. Deleting any photo moves on to the next screen after the 5-second undo.
+
 ## Hubitat
 
 A Hubitat Elevation device driver lives in [`hubitat/`](hubitat/README.md). It provides TV on/off as a Switch, slideshow play/pause/next/previous, favorite, delete (opt-in), favorites-only, mode/order/interval, TV remote keys, and buttons for Pico remotes. It updates live from the frame's event stream.
@@ -510,7 +522,7 @@ POST /api/slideshow/shuffle        # New random order (no repeats until all show
 
 # Settings
 GET  /api/settings                 # Get slideshow settings
-POST /api/settings                 # Update settings (mode, order, interval, favoritesOnly, nonFavoritesOnly, shuffle, overlayFontSize, fillLandscape, fillMaxCrop, importFilter, filterSql)
+POST /api/settings                 # Update settings (mode, order, interval, favoritesOnly, nonFavoritesOnly, shuffle, overlayFontSize, fillLandscape, fillMaxCrop, sideBySide, importFilter, filterSql)
 GET  /api/faces/status             # Face detection progress: { enabled, offReason, available, building, pending, error }
 POST /api/settings/restart         # Exit the server process (a supervisor — systemd/pm2/Electron — restarts it)
 
