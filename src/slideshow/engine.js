@@ -7,6 +7,8 @@ const VALID_MODES = Object.freeze(['sequential', 'random', 'smart', 'artistic'])
 const VALID_ORDERS = Object.freeze(['date', 'filename', 'thisday']);
 // Font size (px) of the bottom-left date · location line on the display.
 const OVERLAY_FONT_SIZE = Object.freeze({ min: 24, max: 240, default: 85 });
+// Font size (px) of the clock in the top-right corner of the display.
+const CLOCK_FONT_SIZE = Object.freeze({ min: 32, max: 320, default: 128 });
 // Fill screen: the most (percent of the photo) a landscape photo may be
 // cropped to fill the screen. 16 fills 3:2 photos on a 16:9 screen.
 const FILL_MAX_CROP = Object.freeze({ min: 5, max: 50, default: 16 });
@@ -62,6 +64,7 @@ class SlideshowEngine {
             shuffle: false,
             shuffleSeed: 0,
             overlayFontSize: OVERLAY_FONT_SIZE.default,
+            clockFontSize: CLOCK_FONT_SIZE.default,
             // Crop landscape photos to fill the screen, when that cuts off
             // at most fillMaxCrop percent (the display does the cropping).
             fillLandscape: false,
@@ -125,6 +128,7 @@ class SlideshowEngine {
         this.db.seedSetting('filter_favorites_only', '0');
         this.db.seedSetting('filter_non_favorites_only', '0');
         this.db.seedSetting('overlay_font_size', OVERLAY_FONT_SIZE.default);
+        this.db.seedSetting('clock_font_size', CLOCK_FONT_SIZE.default);
         this.db.seedSetting('fill_landscape', '0');
         this.db.seedSetting('fill_max_crop', FILL_MAX_CROP.default);
         this.db.seedSetting('side_by_side', '0');
@@ -164,6 +168,10 @@ class SlideshowEngine {
         if (savedSettings.overlay_font_size) {
             const size = parseInt(savedSettings.overlay_font_size);
             if (size >= OVERLAY_FONT_SIZE.min && size <= OVERLAY_FONT_SIZE.max) this.settings.overlayFontSize = size;
+        }
+        if (savedSettings.clock_font_size) {
+            const size = parseInt(savedSettings.clock_font_size);
+            if (size >= CLOCK_FONT_SIZE.min && size <= CLOCK_FONT_SIZE.max) this.settings.clockFontSize = size;
         }
         if (savedSettings.fill_landscape) {
             this.settings.fillLandscape = savedSettings.fill_landscape === '1';
@@ -804,6 +812,7 @@ class SlideshowEngine {
             filterSql: this.settings.filterSql || '',
             shuffle: this._isShuffled(),
             overlayFontSize: this.settings.overlayFontSize,
+            clockFontSize: this.settings.clockFontSize,
             fillLandscape: this.settings.fillLandscape,
             fillMaxCrop: this.settings.fillMaxCrop,
             sideBySide: this.settings.sideBySide,
@@ -880,6 +889,16 @@ class SlideshowEngine {
                 );
             }
             normalized.overlayFontSize = size;
+        }
+
+        if (input.clockFontSize !== undefined) {
+            const size = Number(input.clockFontSize);
+            if (!Number.isInteger(size) || size < CLOCK_FONT_SIZE.min || size > CLOCK_FONT_SIZE.max) {
+                throw new SettingsValidationError(
+                    `Invalid clockFontSize. Must be a whole number from ${CLOCK_FONT_SIZE.min} to ${CLOCK_FONT_SIZE.max}`
+                );
+            }
+            normalized.clockFontSize = size;
         }
 
         if (input.shuffle !== undefined) {
@@ -971,6 +990,11 @@ class SlideshowEngine {
         if (updates.overlayFontSize !== undefined) {
             this.settings.overlayFontSize = updates.overlayFontSize;
             this.db.setSetting('overlay_font_size', updates.overlayFontSize);
+        }
+
+        if (updates.clockFontSize !== undefined) {
+            this.settings.clockFontSize = updates.clockFontSize;
+            this.db.setSetting('clock_font_size', updates.clockFontSize);
         }
 
         if (updates.fillLandscape !== undefined) {
@@ -1208,6 +1232,7 @@ module.exports.SettingsValidationError = SettingsValidationError;
 module.exports.VALID_MODES = VALID_MODES;
 module.exports.VALID_ORDERS = VALID_ORDERS;
 module.exports.OVERLAY_FONT_SIZE = OVERLAY_FONT_SIZE;
+module.exports.CLOCK_FONT_SIZE = CLOCK_FONT_SIZE;
 module.exports.FILL_MAX_CROP = FILL_MAX_CROP;
 
 

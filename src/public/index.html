@@ -217,6 +217,15 @@
                     </div>
 
                     <div class="settings-group">
+                        <label for="clockFontSizeRange">Clock size</label>
+                        <div class="font-size-row">
+                            <input type="range" id="clockFontSizeRange" min="32" max="320" step="1" value="128">
+                            <span id="clockFontSizeValue" class="font-size-value">128 px</span>
+                        </div>
+                        <p class="settings-help">The clock in the top-right corner. Previews live; Save to keep it. Default 128 px.</p>
+                    </div>
+
+                    <div class="settings-group">
                         <label>
                             <input type="checkbox" id="fillLandscapeCheck">
                             Fill the screen with landscape photos

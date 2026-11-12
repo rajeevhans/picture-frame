@@ -17,6 +17,7 @@ const state = {
     overlayImageId: null,  // photo the date/location overlay currently describes
     overlayText: '',       // its date · location text ('' if none)
     overlayFontSizeEditing: false, // slider moved but not yet saved/cancelled
+    clockFontSizeEditing: false,   // clock size slider moved but not yet saved/cancelled
     layoutEditing: false,          // fill/side-by-side controls changed but not yet saved/cancelled
     group: null,                   // side by side: the photos on screen (currentImage is group[0])
     groupStage: null,              // their .group-stage element
@@ -59,6 +60,8 @@ const elements = {
     intervalSelect: document.getElementById('intervalSelect'),
     overlayFontSizeRange: document.getElementById('overlayFontSizeRange'),
     overlayFontSizeValue: document.getElementById('overlayFontSizeValue'),
+    clockFontSizeRange: document.getElementById('clockFontSizeRange'),
+    clockFontSizeValue: document.getElementById('clockFontSizeValue'),
     fillLandscapeCheck: document.getElementById('fillLandscapeCheck'),
     sideBySideCheck: document.getElementById('sideBySideCheck'),
     fillMaxCropRange: document.getElementById('fillMaxCropRange'),
@@ -555,6 +558,7 @@ async function saveSettings() {
         order: elements.orderSelect.value,
         interval: parseInt(elements.intervalSelect.value),
         overlayFontSize: parseInt(elements.overlayFontSizeRange.value),
+        clockFontSize: parseInt(elements.clockFontSizeRange.value),
         fillLandscape: elements.fillLandscapeCheck.checked,
         sideBySide: elements.sideBySideCheck.checked,
         fillMaxCrop: parseInt(elements.fillMaxCropRange.value),
@@ -578,6 +582,7 @@ async function saveSettings() {
         }
 
         state.overlayFontSizeEditing = false;
+        state.clockFontSizeEditing = false;
         state.layoutEditing = false;
         updateSettings(data.settings);
         closeSettings();
@@ -1204,6 +1209,12 @@ function applyOverlayFontSize(px) {
     elements.overlayFontSizeValue.textContent = `${px} px`;
 }
 
+// Size of the clock in the top-right corner.
+function applyClockFontSize(px) {
+    document.documentElement.style.setProperty('--clock-font-size', `${px}px`);
+    elements.clockFontSizeValue.textContent = `${px} px`;
+}
+
 function favoritesFilter(settings) {
     if (settings.importFilter) return 'import:' + settings.importFilter;
     if (settings.favoritesOnly) return 'favorites';
@@ -1506,6 +1517,10 @@ function updateSettings(settings) {
     if (settings.overlayFontSize && !state.overlayFontSizeEditing) {
         elements.overlayFontSizeRange.value = settings.overlayFontSize;
         applyOverlayFontSize(settings.overlayFontSize);
+    }
+    if (settings.clockFontSize && !state.clockFontSizeEditing) {
+        elements.clockFontSizeRange.value = settings.clockFontSize;
+        applyClockFontSize(settings.clockFontSize);
     }
     elements.favoritesOnlyCheck.checked = settings.favoritesOnly;
     elements.nonFavoritesOnlyCheck.checked = !!settings.nonFavoritesOnly;
@@ -2042,6 +2057,11 @@ function closeSettings() {
         elements.overlayFontSizeRange.value = state.settings.overlayFontSize;
         applyOverlayFontSize(state.settings.overlayFontSize);
     }
+    state.clockFontSizeEditing = false;
+    if (state.settings && state.settings.clockFontSize) {
+        elements.clockFontSizeRange.value = state.settings.clockFontSize;
+        applyClockFontSize(state.settings.clockFontSize);
+    }
     state.layoutEditing = false;
     if (state.settings) updateLayoutControls(state.settings);   // drop unsaved changes
     if (window.PictureFrameTvRemote) window.PictureFrameTvRemote.hide();
@@ -2117,6 +2137,12 @@ function setupEventListeners() {
     elements.overlayFontSizeRange.addEventListener('input', () => {
         state.overlayFontSizeEditing = true;
         applyOverlayFontSize(parseInt(elements.overlayFontSizeRange.value));
+    });
+
+    // Live preview of the clock size while dragging
+    elements.clockFontSizeRange.addEventListener('input', () => {
+        state.clockFontSizeEditing = true;
+        applyClockFontSize(parseInt(elements.clockFontSizeRange.value));
     });
 
     // Fill screen crop limit: show the value while dragging (Save applies it)

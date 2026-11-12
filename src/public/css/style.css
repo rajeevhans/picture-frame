@@ -218,7 +218,8 @@ body.show-cursor {
     position: absolute;
     top: 60px;
     right: 60px;
-    font-size: 128px;
+    /* Set from the clockFontSize setting (Settings → Slideshow) */
+    font-size: var(--clock-font-size, 128px);
     color: #fff;
     font-weight: 300;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;

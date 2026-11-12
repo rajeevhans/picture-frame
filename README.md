@@ -184,6 +184,7 @@ Both UIs receive real-time updates via SSE. The slideshow timer is server-author
 - **Order**: Date taken, filename, or "This Day in History"
 - **Interval**: 5 seconds to 5 minutes between images
 - **Date & location text size**: Font size of the bottom-left date · location line, 24–240 px (default 85). Previews live while dragging, and is shared with every screen once saved
+- **Clock size**: Font size of the top-right clock, 32–320 px (default 128). Previews live while dragging, and is shared with every screen once saved
 - **Fill the screen with landscape photos**: Crops landscape photos to fill the screen, up to a set limit (default 16%), keeping faces in view. See [Fill Screen](#fill-screen). Shortcut: Ctrl/Cmd+C
 - **Show portrait photos side by side**: Portraits and squares 2 or 3 to a screen, each with its own date · location. See [Side by Side](#side-by-side). Shortcut: Ctrl/Cmd+G
 - **Filters**: Show favorites only, show non-favorites only (the two are mutually exclusive), or restrict to a custom SQL filter
@@ -522,7 +523,7 @@ POST /api/slideshow/shuffle        # New random order (no repeats until all show
 
 # Settings
 GET  /api/settings                 # Get slideshow settings
-POST /api/settings                 # Update settings (mode, order, interval, favoritesOnly, nonFavoritesOnly, shuffle, overlayFontSize, fillLandscape, fillMaxCrop, sideBySide, importFilter, filterSql)
+POST /api/settings                 # Update settings (mode, order, interval, favoritesOnly, nonFavoritesOnly, shuffle, overlayFontSize, clockFontSize, fillLandscape, fillMaxCrop, sideBySide, importFilter, filterSql)
 GET  /api/faces/status             # Face detection progress: { enabled, offReason, available, building, pending, error }
 POST /api/settings/restart         # Exit the server process (a supervisor — systemd/pm2/Electron — restarts it)
 
